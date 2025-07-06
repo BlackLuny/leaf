@@ -247,7 +247,9 @@ warp = { version = "0.3", default-features = false, optional = true }
 notify = { version = "6", optional = true }
 
 # TUN
-tun = { version = "0.7", features = ["async"], optional = true  }
+tun = { package = "tun-easytier", version = "1.1.1", features = [
+    "async",
+], optional = true }
 netstack-lwip = { git = "https://github.com/eycorsican/netstack-lwip", rev = "f434fef", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
