@@ -119,7 +119,9 @@ inbound-trojan = ["sha2", "hex"]
 inbound-shadowsocks = ["hkdf", "sha-1", "md-5", "tokio-util"]
 inbound-socks = []
 inbound-http = ["http"]
-inbound-tun = ["tun", "netstack-lwip", "pnet_datalink"]
+inbound-tun-lwip = ["dep:tun", "netstack-lwip", "pnet_datalink"]
+inbound-tun-smoltcp = ["dep:tun", "netstack-smoltcp", "pnet_datalink"]
+inbound-tun = ["inbound-tun-smoltcp"]  # 默认使用 lwip，保持向后兼容
 inbound-ws = ["tungstenite", "tokio-tungstenite", "url", "http"]
 inbound-amux = ["tokio-util"]
 inbound-quic = ["quinn", "rustls", "rustls-pemfile-old"]
@@ -251,6 +253,7 @@ tun = { package = "tun-easytier", version = "1.1.1", features = [
     "async",
 ], optional = true }
 netstack-lwip = { git = "https://github.com/eycorsican/netstack-lwip", rev = "f434fef", optional = true }
+netstack-smoltcp = {version = "0.1.3", optional = true}
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ipconfig = "0.3"
