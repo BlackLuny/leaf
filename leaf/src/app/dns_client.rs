@@ -5,6 +5,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
+use ::private_tun::dns_cache::DnsResolver;
 use anyhow::{anyhow, Result};
 use futures::future::select_ok;
 use lru::LruCache;

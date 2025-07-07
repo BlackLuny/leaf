@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
+use tracing::debug;
 use tracing::{error, info, trace, warn};
 
 #[cfg(feature = "auto-reload")]
@@ -445,6 +446,8 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         sys::NetInfo::default()
     };
 
+    println!("net_info: {:?}", net_info);
+
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
     {
         if let sys::NetInfo {
@@ -452,17 +455,24 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
             ..
         } = &net_info
         {
+            use tracing::debug;
+
             let binds = if let Ok(v) = std::env::var("OUTBOUND_INTERFACE") {
                 format!("{},{}", v, iface)
             } else {
                 iface.clone()
             };
+            debug!("OUTBOUND_INTERFACE: {}", binds);
             std::env::set_var("OUTBOUND_INTERFACE", binds);
         }
     }
 
     #[cfg(all(feature = "inbound-tun", target_os = "windows"))]
     {
+        use tracing::debug;
+
+        let binds = winsys::get_default_interface_ips();
+        debug!("OUTBOUND_INTERFACE: {}", binds);
         std::env::set_var("OUTBOUND_INTERFACE", winsys::get_default_interface_ips());
     }
 

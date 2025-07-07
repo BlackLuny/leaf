@@ -573,7 +573,7 @@ impl OutboundManager {
                     }
                     #[cfg(feature = "outbound-private-tun")]
                     "private-tun" => {
-                        use std::sync::Arc;
+                        use std::{net::IpAddr, sync::Arc};
 
                         use ::private_tun::snell_impl_ver::{
                             client_zfc::run_client_with_config_and_name,
@@ -594,9 +594,24 @@ impl OutboundManager {
                         let cancel_token_clone = cancel_token.clone();
                         let (inbound_tx, inbound_rx) = create_ringbuf_channel(13);
                         let config_name = tag.clone();
+                        struct DnsClientWrapper(SyncDnsClient);
+                        #[async_trait::async_trait]
+                        impl ::private_tun::dns_cache::DnsResolver for DnsClientWrapper {
+                            async fn resolve_dns(
+                                &self,
+                                host: &str,
+                                port: u16,
+                            ) -> Result<Vec<IpAddr>> {
+                                self.0.read().await.direct_lookup(&host.to_string()).await
+                            }
+                        }
+                        let dns_resolver = Arc::new(DnsClientWrapper(dns_client.clone()))
+                            as Arc<dyn ::private_tun::dns_cache::DnsResolver>;
                         tokio::spawn(async move {
+                            use ::private_tun::snell_impl_ver::client_run::init_ring_provider;
                             use socket2::Socket;
-
+                            let _ = init_ring_provider();
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                             let _h = run_client_with_config_and_name(
                                 client_config,
                                 inbound_rx,
@@ -606,6 +621,7 @@ impl OutboundManager {
                                 Some(Arc::new(Box::new(move |socket: &Socket, target_addr| {
                                     let _ = bind_socket(socket, target_addr);
                                 }))),
+                                Some(dns_resolver),
                             )
                             .await;
                         });

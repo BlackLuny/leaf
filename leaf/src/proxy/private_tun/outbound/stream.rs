@@ -68,8 +68,8 @@ impl OutboundStreamHandler for Handler {
         _lhs: Option<&mut AnyStream>,
         stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
-        let mut stream =
-            stream.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing stream"))?;
+        // let mut stream =
+        //     stream.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing stream"))?;
 
         // Create a duplex channel to bridge leaf's stream with private_tun
         let (client_side_pipe0, client_side_pipe1) = duplex(8192);
