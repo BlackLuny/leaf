@@ -35,7 +35,12 @@ pub mod proxy;
 pub mod session;
 pub mod util;
 
-#[cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))]
+#[cfg(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "android",
+    target_vendor = "uwp"
+))]
 pub mod mobile;
 
 #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]

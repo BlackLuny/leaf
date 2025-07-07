@@ -46,6 +46,18 @@ fn log_out(data: &[u8]) {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub fn log_text(text: &str) {
+    extern "system" {
+        fn OutputDebugStringW(lp_output_string: *const u16);
+    }
+    use std::{ffi::OsStr, os::windows::prelude::OsStrExt};
+
+    let mut bytes: Vec<_> = OsStr::new(text).encode_wide().collect();
+    bytes.push(0);
+    unsafe { OutputDebugStringW(bytes.as_ptr()) };
+}
+
 #[derive(Debug)]
 pub struct ConsoleWriter(pub BytesMut);
 
@@ -58,12 +70,19 @@ impl Default for ConsoleWriter {
 unsafe impl Send for ConsoleWriter {}
 
 impl Write for ConsoleWriter {
+    #[cfg(not(target_vendor = "uwp"))]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0.extend_from_slice(buf);
         if let Some(i) = memchr::memchr(b'\n', &self.0) {
             log_out(&self.0[..i]);
             let _ = self.0.split_to(i + 1);
         }
+        Ok(buf.len())
+    }
+
+    #[cfg(target_vendor = "uwp")]
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        log_text(String::from_utf8_lossy(buf).as_ref());
         Ok(buf.len())
     }
 

@@ -67,13 +67,13 @@ fn get_writer(config: &config::Log) -> Result<(WriterLayer, WorkerGuard)> {
                     (writer, writer_guard)
                 }
             }
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            #[cfg(any(target_os = "linux", target_os = "windows", not(target_vendor = "uwp")))]
             {
                 let (writer, writer_guard) = tracing_appender::non_blocking(std::io::stdout());
                 let writer = fmt::Layer::default().with_writer(writer);
                 (writer, writer_guard)
             }
-            #[cfg(any(target_os = "ios", target_os = "android"))]
+            #[cfg(any(target_os = "ios", target_os = "android", target_vendor = "uwp"))]
             {
                 let writer = crate::mobile::logger::ConsoleWriter::default();
                 let (writer, writer_guard) = tracing_appender::non_blocking(writer);
