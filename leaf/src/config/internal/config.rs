@@ -3684,6 +3684,96 @@ impl ::protobuf::Message for PluginOutboundSettings {
     }
 }
 
+// @@protoc_insertion_point(message:PrivateTunOutboundSettings)
+#[derive(PartialEq,Clone,Default,Debug)]
+pub struct PrivateTunOutboundSettings {
+    // message fields
+    // @@protoc_insertion_point(field:PrivateTunOutboundSettings.client_config_json)
+    pub client_config_json: ::std::string::String,
+    // special fields
+    // @@protoc_insertion_point(special_field:PrivateTunOutboundSettings.special_fields)
+    pub special_fields: ::protobuf::SpecialFields,
+}
+
+impl<'a> ::std::default::Default for &'a PrivateTunOutboundSettings {
+    fn default() -> &'a PrivateTunOutboundSettings {
+        <PrivateTunOutboundSettings as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl PrivateTunOutboundSettings {
+    pub fn new() -> PrivateTunOutboundSettings {
+        ::std::default::Default::default()
+    }
+}
+
+impl ::protobuf::Message for PrivateTunOutboundSettings {
+    const NAME: &'static str = "PrivateTunOutboundSettings";
+
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream<'_>) -> ::protobuf::Result<()> {
+        while let Some(tag) = is.read_raw_tag_or_eof()? {
+            match tag {
+                10 => {
+                    self.client_config_json = is.read_string()?;
+                },
+                tag => {
+                    ::protobuf::rt::read_unknown_or_skip_group(tag, is, self.special_fields.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u64 {
+        let mut my_size = 0;
+        if !self.client_config_json.is_empty() {
+            my_size += ::protobuf::rt::string_size(1, &self.client_config_json);
+        }
+        my_size += ::protobuf::rt::unknown_fields_size(self.special_fields.unknown_fields());
+        self.special_fields.cached_size().set(my_size as u32);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::Result<()> {
+        if !self.client_config_json.is_empty() {
+            os.write_string(1, &self.client_config_json)?;
+        }
+        os.write_unknown_fields(self.special_fields.unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn special_fields(&self) -> &::protobuf::SpecialFields {
+        &self.special_fields
+    }
+
+    fn mut_special_fields(&mut self) -> &mut ::protobuf::SpecialFields {
+        &mut self.special_fields
+    }
+
+    fn new() -> PrivateTunOutboundSettings {
+        PrivateTunOutboundSettings::new()
+    }
+
+    fn clear(&mut self) {
+        self.client_config_json.clear();
+        self.special_fields.clear();
+    }
+
+    fn default_instance() -> &'static PrivateTunOutboundSettings {
+        static instance: PrivateTunOutboundSettings = PrivateTunOutboundSettings {
+            client_config_json: ::std::string::String::new(),
+            special_fields: ::protobuf::SpecialFields::new(),
+        };
+        &instance
+    }
+}
+
 // @@protoc_insertion_point(message:Outbound)
 #[derive(PartialEq,Clone,Default,Debug)]
 pub struct Outbound {

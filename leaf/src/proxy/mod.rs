@@ -83,6 +83,8 @@ pub mod tun;
 pub mod vmess;
 #[cfg(any(feature = "inbound-ws", feature = "outbound-ws"))]
 pub mod ws;
+#[cfg(feature = "outbound-private-tun")]
+pub mod private_tun;
 
 pub use datagram::*;
 

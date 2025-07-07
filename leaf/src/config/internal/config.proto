@@ -226,6 +226,11 @@ message PluginOutboundSettings {
 	string args = 2;
 }
 
+message PrivateTunOutboundSettings {
+	// 序列化的private_tun ClientConfig JSON
+	string client_config_json = 1;
+}
+
 message Outbound {
 	string tag = 1;
 	string protocol = 2; // TODO use enum

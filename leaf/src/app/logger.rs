@@ -67,7 +67,7 @@ fn get_writer(config: &config::Log) -> Result<(WriterLayer, WorkerGuard)> {
                     (writer, writer_guard)
                 }
             }
-            #[cfg(any(target_os = "linux", target_os = "windows", not(target_vendor = "uwp")))]
+            #[cfg(any(target_os = "linux", all(target_os = "windows", not(target_vendor = "uwp"))))]
             {
                 let (writer, writer_guard) = tracing_appender::non_blocking(std::io::stdout());
                 let writer = fmt::Layer::default().with_writer(writer);

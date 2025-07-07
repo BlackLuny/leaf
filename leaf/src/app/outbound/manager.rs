@@ -33,6 +33,8 @@ use crate::proxy::direct;
 use crate::proxy::drop;
 #[cfg(feature = "outbound-obfs")]
 use crate::proxy::obfs;
+#[cfg(feature = "outbound-private-tun")]
+use crate::proxy::private_tun;
 #[cfg(feature = "outbound-quic")]
 use crate::proxy::quic;
 #[cfg(feature = "outbound-redirect")]
@@ -568,6 +570,51 @@ impl OutboundManager {
                             &tag,
                             settings.actors.join(",")
                         );
+                    }
+                    #[cfg(feature = "outbound-private-tun")]
+                    "private-tun" => {
+                        use ::private_tun::snell_impl_ver::{
+                            client_zfc::run_client_with_config_and_name,
+                            udp_intf::create_ringbuf_channel,
+                        };
+
+                        let settings = config::PrivateTunOutboundSettings::parse_from_bytes(
+                            &outbound.settings,
+                        )
+                        .map_err(|e| anyhow!("invalid [{}] outbound settings: {}", &tag, e))?;
+
+                        // 解析存储的ClientConfig JSON
+                        let client_config: ::private_tun::snell_impl_ver::config::ClientConfig =
+                            serde_json::from_str(&settings.client_config_json)
+                                .map_err(|e| anyhow!("invalid private-tun client config: {}", e))?;
+
+                        let cancel_token = tokio_util::sync::CancellationToken::new();
+                        let cancel_token_clone = cancel_token.clone();
+                        let (inbound_tx, inbound_rx) = create_ringbuf_channel(13);
+                        let config_name = tag.clone();
+                        tokio::spawn(async move {
+                            run_client_with_config_and_name(
+                                client_config,
+                                inbound_rx,
+                                &config_name,
+                                Some(cancel_token),
+                                true,
+                            );
+                        });
+
+                        let stream = Box::new(private_tun::outbound::Handler {
+                            tag: tag.clone(),
+                            color: colored::Color::Yellow, // 默认颜色
+                            client_tx: tokio::sync::Mutex::new(inbound_tx),
+                            cancel_token: cancel_token_clone,
+                        });
+
+                        let handler = HandlerBuilder::default()
+                            .tag(tag.clone())
+                            .stream_handler(stream)
+                            .build();
+                        handlers.insert(tag.clone(), handler);
+                        trace!("added handler [{}]", &tag);
                     }
                     #[cfg(feature = "plugin")]
                     "plugin" => {

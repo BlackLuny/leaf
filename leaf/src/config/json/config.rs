@@ -197,6 +197,14 @@ pub struct RetryOutboundSettings {
     pub attempts: Option<u32>,
 }
 
+#[cfg(feature = "outbound-private-tun")]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PrivateTunOutboundSettings {
+    // 直接使用private_tun的完整ClientConfig
+    #[serde(flatten)]
+    pub client_config: private_tun::snell_impl_ver::config::ClientConfig,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FailOverOutboundSettings {
     pub actors: Option<Vec<String>>,
@@ -918,6 +926,24 @@ pub fn to_internal(json: &mut Config) -> Result<internal::Config> {
                             settings.actors.push(ext_actor);
                         }
                     }
+                    let settings = settings.write_to_bytes().unwrap();
+                    outbound.settings = settings;
+                    outbounds.push(outbound);
+                }
+#[cfg(feature = "outbound-private-tun")]
+                "private-tun" => {
+                    if ext_outbound.settings.is_none() {
+                        return Err(anyhow!("invalid private-tun outbound settings"));
+                    }
+                    let mut settings = internal::PrivateTunOutboundSettings::new();
+                    let ext_settings: PrivateTunOutboundSettings =
+                        serde_json::from_str(ext_outbound.settings.as_ref().unwrap().get())
+                            .unwrap();
+                    
+                    // 将完整的ClientConfig序列化为JSON存储
+                    let client_config_json = serde_json::to_string(&ext_settings.client_config)?;
+                    settings.client_config_json = client_config_json;
+                    
                     let settings = settings.write_to_bytes().unwrap();
                     outbound.settings = settings;
                     outbounds.push(outbound);
