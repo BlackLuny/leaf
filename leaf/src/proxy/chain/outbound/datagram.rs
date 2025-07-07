@@ -10,18 +10,18 @@ pub struct Handler {
 }
 
 impl Handler {
-    fn next_connect_addr(&self, start: usize) -> OutboundConnect {
+    async fn next_connect_addr(&self, start: usize, sess: &Session) -> OutboundConnect {
         for a in self.actors[start..].iter() {
             match a.datagram() {
                 Ok(h) => {
                     if self.unreliable_chain(start + 1) {
-                        let oc = h.connect_addr();
+                        let oc = h.connect_addr(sess).await;
                         if let OutboundConnect::Next = oc {
                             continue;
                         }
                         return oc;
                     } else if let Ok(h) = a.stream() {
-                        let oc = h.connect_addr();
+                        let oc = h.connect_addr(sess).await;
                         if let OutboundConnect::Next = oc {
                             continue;
                         }
@@ -30,7 +30,7 @@ impl Handler {
                 }
                 _ => {
                     if let Ok(h) = a.stream() {
-                        let oc = h.connect_addr();
+                        let oc = h.connect_addr(sess).await;
                         if let OutboundConnect::Next = oc {
                             continue;
                         }
@@ -42,8 +42,9 @@ impl Handler {
         OutboundConnect::Unknown
     }
 
-    fn next_session(&self, mut sess: Session, start: usize) -> Session {
-        if let OutboundConnect::Proxy(_, address, port) = self.next_connect_addr(start) {
+    async fn next_session(&self, mut sess: Session, start: usize) -> Session {
+        if let OutboundConnect::Proxy(_, address, port) = self.next_connect_addr(start, &sess).await
+        {
             if let Ok(addr) = SocksAddr::try_from((address, port)) {
                 sess.destination = addr;
             }
@@ -71,7 +72,7 @@ impl Handler {
         mut dgram: Option<Box<dyn OutboundDatagram>>,
     ) -> io::Result<Box<dyn OutboundDatagram>> {
         for (i, a) in self.actors.iter().enumerate() {
-            let new_sess = self.next_session(sess.clone(), i + 1);
+            let new_sess = self.next_session(sess.clone(), i + 1).await;
 
             if let Ok(uh) = a.datagram() {
                 if let Some(d) = dgram.take() {
@@ -107,8 +108,8 @@ impl Handler {
 
 #[async_trait]
 impl OutboundDatagramHandler for Handler {
-    fn connect_addr(&self) -> OutboundConnect {
-        self.next_connect_addr(0)
+    async fn connect_addr(&self, sess: &Session) -> OutboundConnect {
+        self.next_connect_addr(0, sess).await
     }
 
     fn transport_type(&self) -> DatagramTransportType {

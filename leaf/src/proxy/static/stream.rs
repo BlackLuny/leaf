@@ -41,13 +41,13 @@ impl Handler {
 
 #[async_trait]
 impl OutboundStreamHandler for Handler {
-    fn connect_addr(&self) -> OutboundConnect {
+    async fn connect_addr(&self, sess: &Session) -> OutboundConnect {
         let a = &self.actors[self.next.load(Ordering::Relaxed)];
         match a.stream() {
-            Ok(h) => return h.connect_addr(),
+            Ok(h) => return h.connect_addr(sess).await,
             _ => {
                 if let Ok(h) = a.datagram() {
-                    return h.connect_addr();
+                    return h.connect_addr(sess).await;
                 }
             }
         }

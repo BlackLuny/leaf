@@ -573,6 +573,8 @@ impl OutboundManager {
                     }
                     #[cfg(feature = "outbound-private-tun")]
                     "private-tun" => {
+                        use std::sync::Arc;
+
                         use ::private_tun::snell_impl_ver::{
                             client_zfc::run_client_with_config_and_name,
                             udp_intf::create_ringbuf_channel,
@@ -593,25 +595,43 @@ impl OutboundManager {
                         let (inbound_tx, inbound_rx) = create_ringbuf_channel(13);
                         let config_name = tag.clone();
                         tokio::spawn(async move {
-                            run_client_with_config_and_name(
+                            use socket2::Socket;
+
+                            let _h = run_client_with_config_and_name(
                                 client_config,
                                 inbound_rx,
                                 &config_name,
                                 Some(cancel_token),
                                 true,
-                            );
+                                Some(Arc::new(Box::new(move |socket: &Socket, target_addr| {
+                                    let _ = bind_socket(socket, target_addr);
+                                }))),
+                            )
+                            .await;
                         });
+                        let client = Arc::new(private_tun::outbound::Client::new(
+                            tokio::sync::Mutex::new(inbound_tx),
+                            cancel_token_clone,
+                        ));
 
+                        // Create stream handler
                         let stream = Box::new(private_tun::outbound::Handler {
                             tag: tag.clone(),
                             color: colored::Color::Yellow, // 默认颜色
-                            client_tx: tokio::sync::Mutex::new(inbound_tx),
-                            cancel_token: cancel_token_clone,
+                            client: client.clone(),
+                        });
+
+                        let datagram = Box::new(private_tun::outbound::DatagramHandler {
+                            tag: tag.clone(),
+                            color: colored::Color::Yellow, // 默认颜色
+                            bind_addr: "127.0.0.1:0".parse().unwrap(), // 默认绑定地址
+                            client: client.clone(),
                         });
 
                         let handler = HandlerBuilder::default()
                             .tag(tag.clone())
                             .stream_handler(stream)
+                            .datagram_handler(datagram)
                             .build();
                         handlers.insert(tag.clone(), handler);
                         trace!("added handler [{}]", &tag);

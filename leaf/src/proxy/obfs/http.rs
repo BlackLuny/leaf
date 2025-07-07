@@ -58,7 +58,7 @@ impl Handler {
 
 #[async_trait]
 impl OutboundStreamHandler for Handler {
-    fn connect_addr(&self) -> OutboundConnect {
+    async fn connect_addr(&self, _sess: &Session) -> OutboundConnect {
         OutboundConnect::Next
     }
 

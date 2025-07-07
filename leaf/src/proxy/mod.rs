@@ -162,7 +162,7 @@ async fn protect_socket(fd: RawFd) -> io::Result<()> {
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-trait BindSocket: AsFd {
+pub trait BindSocket: AsFd {
     fn bind(&self, bind_addr: &SocketAddr) -> io::Result<()>;
 }
 
@@ -202,7 +202,7 @@ impl TcpListener {
     }
 }
 
-async fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Result<()> {
+pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Result<()> {
     match indicator.ip() {
         IpAddr::V4(v4) if v4.is_loopback() => {
             socket.bind(&SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 0).into())?;
@@ -308,7 +308,7 @@ pub async fn new_udp_socket(indicator: &SocketAddr) -> io::Result<UdpSocket> {
 
     socket.set_nonblocking(true)?;
 
-    bind_socket(&socket, indicator).await?;
+    bind_socket(&socket, indicator)?;
 
     #[cfg(target_os = "android")]
     protect_socket(socket.as_raw_fd()).await?;
@@ -351,7 +351,7 @@ async fn tcp_dial_task(dial_addr: SocketAddr) -> io::Result<DialResult> {
         SocketAddr::V6(..) => TcpSocket::new_v6()?,
     };
 
-    bind_socket(&socket, &dial_addr).await?;
+    bind_socket(&socket, &dial_addr)?;
 
     #[cfg(target_os = "android")]
     protect_socket(socket.as_raw_fd()).await?;
@@ -384,7 +384,7 @@ pub async fn connect_stream_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyStream>> {
-    match handler.stream()?.connect_addr() {
+    match handler.stream()?.connect_addr(sess).await {
         OutboundConnect::Proxy(Network::Tcp, addr, port) => {
             Ok(Some(new_tcp_stream(dns_client, &addr, &port).await?))
         }
@@ -405,7 +405,7 @@ pub async fn connect_datagram_outbound(
     dns_client: SyncDnsClient,
     handler: &AnyOutboundHandler,
 ) -> io::Result<Option<AnyOutboundTransport>> {
-    match handler.datagram()?.connect_addr() {
+    match handler.datagram()?.connect_addr(sess).await {
         OutboundConnect::Proxy(network, addr, port) => match network {
             Network::Udp => {
                 let socket = match addr.parse::<IpAddr>() {
@@ -560,7 +560,7 @@ pub enum OutboundConnect {
 pub trait OutboundStreamHandler<S = AnyStream>: Send + Sync + Unpin {
     /// Returns the address which the underlying transport should
     /// communicate with.
-    fn connect_addr(&self) -> OutboundConnect;
+    async fn connect_addr(&self, sess: &Session) -> OutboundConnect;
 
     /// Handles a session with the given stream. On success, returns a
     /// stream wraps the incoming stream.
@@ -613,7 +613,7 @@ pub trait OutboundDatagramHandler<S = AnyStream, D = AnyOutboundDatagram>:
 {
     /// Returns the address which the underlying transport should
     /// communicate with.
-    fn connect_addr(&self) -> OutboundConnect;
+    async fn connect_addr(&self, sess: &Session) -> OutboundConnect;
 
     /// Returns the transport type of this handler.
     fn transport_type(&self) -> DatagramTransportType;
