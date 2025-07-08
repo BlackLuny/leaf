@@ -10,6 +10,7 @@ mod route;
 use std::net::{Ipv4Addr, SocketAddr};
 
 use async_trait::async_trait;
+use socket2::SockRef;
 use tokio::process::Command;
 
 use thiserror::Error;
@@ -148,7 +149,7 @@ pub use windows::RegistryManager;
 
 
 pub fn setup_sokcet2_ext(
-    socket2_socket: &socket2::Socket,
+    socket2_socket: SockRef,
     bind_addr: &SocketAddr,
     #[allow(unused_variables)] bind_dev: Option<String>,
 ) -> Result<(), Error> {

@@ -25,6 +25,7 @@ use {
     tokio::net::UnixStream, tracing::trace,
 };
 
+use crate::common::ifcfg::setup_sokcet2_ext;
 use crate::{
     app::SyncDnsClient,
     common::resolver::Resolver,
@@ -50,6 +51,8 @@ pub mod failover;
 pub mod http;
 #[cfg(feature = "outbound-obfs")]
 pub mod obfs;
+#[cfg(feature = "outbound-private-tun")]
+pub mod private_tun;
 #[cfg(any(feature = "inbound-quic", feature = "outbound-quic"))]
 pub mod quic;
 #[cfg(feature = "outbound-redirect")]
@@ -83,8 +86,6 @@ pub mod tun;
 pub mod vmess;
 #[cfg(any(feature = "inbound-ws", feature = "outbound-ws"))]
 pub mod ws;
-#[cfg(feature = "outbound-private-tun")]
-pub mod private_tun;
 
 pub use datagram::*;
 
@@ -164,22 +165,30 @@ async fn protect_socket(fd: RawFd) -> io::Result<()> {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub trait BindSocket: AsFd {
     fn bind(&self, bind_addr: &SocketAddr) -> io::Result<()>;
+    fn get_socket_ref(&self) -> SockRef;
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 trait BindSocket {
     fn bind(&self, bind_addr: &SocketAddr) -> io::Result<()>;
+    fn get_socket_ref(&self) -> SockRef;
 }
 
 impl BindSocket for TcpSocket {
     fn bind(&self, bind_addr: &SocketAddr) -> io::Result<()> {
         self.bind(bind_addr.to_owned())
     }
+    fn get_socket_ref(&self) -> SockRef {
+        SockRef::from(self)
+    }
 }
 
 impl BindSocket for socket2::Socket {
     fn bind(&self, bind_addr: &SocketAddr) -> io::Result<()> {
         self.bind(&bind_addr.to_owned().into())
+    }
+    fn get_socket_ref(&self) -> SockRef {
+        SockRef::from(self)
     }
 }
 
@@ -281,11 +290,12 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                 if (addr.is_ipv4() && indicator.is_ipv4())
                     || (addr.is_ipv6() && indicator.is_ipv6())
                 {
-                    #[cfg(target_os = "windows")]
-                    {
-                        let is_udp = matches!(socket.r#type()?, socket2::Type::DGRAM);
-                        crate::arch::windows::setup_socket_for_win(socket, addr, iface, is_udp)?;
-                    }
+                    setup_sokcet2_ext(socket.get_socket_ref(), addr, None).map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::Other,
+                            format!("failed to bind socket to {}: {:?}", addr, e),
+                        )
+                    })?;
                     if let Err(e) = socket.bind(addr) {
                         last_err = Some(e);
                         continue;
