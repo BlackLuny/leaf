@@ -186,13 +186,13 @@ pub fn setup_sokcet2_ext(
         .map_err(Error::SetupForWindows)?;
     }
 
-    if let Err(e) = socket2_socket.bind(&socket2::SockAddr::from(*bind_addr)) {
-        if bind_addr.is_ipv4() {
-            return Err(e.into());
-        } else {
-            tracing::warn!(?e, "bind failed, do not return error for ipv6");
-        }
-    }
+    // if let Err(e) = socket2_socket.bind(&socket2::SockAddr::from(*bind_addr)) {
+    //     if bind_addr.is_ipv4() {
+    //         return Err(e.into());
+    //     } else {
+    //         tracing::warn!(?e, "bind failed, do not return error for ipv6");
+    //     }
+    // }
 
     // #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
     // socket2_socket.set_reuse_port(true)?;
