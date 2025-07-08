@@ -35,13 +35,13 @@ impl Condition for Rule {
     }
 }
 
-struct MmdbMatcher {
-    reader: Arc<maxminddb::Reader<Mmap>>,
+struct MmdbMatcher<S: AsRef<[u8]>> {
+    reader: Arc<maxminddb::Reader<S>>,
     country_code: String,
 }
 
-impl MmdbMatcher {
-    fn new(reader: Arc<maxminddb::Reader<Mmap>>, country_code: String) -> Self {
+impl<S: AsRef<[u8]>> MmdbMatcher<S> {
+    fn new(reader: Arc<maxminddb::Reader<S>>, country_code: String) -> Self {
         MmdbMatcher {
             reader,
             country_code,
@@ -49,7 +49,7 @@ impl MmdbMatcher {
     }
 }
 
-impl Condition for MmdbMatcher {
+impl<S: AsRef<[u8]> + Send + Sync> Condition for MmdbMatcher<S> {
     fn apply(&self, sess: &Session) -> bool {
         if !sess.destination.is_domain() {
             if let Some(ip) = sess.destination.ip() {
