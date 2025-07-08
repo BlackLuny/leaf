@@ -40,7 +40,6 @@ pub mod util;
     target_os = "ios",
     target_os = "macos",
     target_os = "android",
-    target_os = "windows"
 ))]
 pub mod mobile;
 
