@@ -572,26 +572,26 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         .map_err(|_| Error::RuntimeManager)?
         .insert(rt_id, runtime_manager);
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        trace!("added runtime {}", &rt_id);
+    // #[cfg(not(target_os = "windows"))]
+    // {
+    trace!("added runtime {}", &rt_id);
 
-        rt.block_on(futures::future::select_all(tasks));
+    rt.block_on(futures::future::select_all(tasks));
 
-        #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
-        sys::post_tun_completion_setup(&net_info);
+    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
+    sys::post_tun_completion_setup(&net_info);
 
-        drop(inbound_manager);
+    drop(inbound_manager);
 
-        RUNTIME_MANAGER
-            .lock()
-            .map_err(|_| Error::RuntimeManager)?
-            .remove(&rt_id);
+    RUNTIME_MANAGER
+        .lock()
+        .map_err(|_| Error::RuntimeManager)?
+        .remove(&rt_id);
 
-        rt.shutdown_background();
+    rt.shutdown_background();
 
-        trace!("removed runtime {}", &rt_id);
-    }
+    trace!("removed runtime {}", &rt_id);
+    // }
     Ok(())
 }
 
