@@ -281,6 +281,11 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                 if (addr.is_ipv4() && indicator.is_ipv4())
                     || (addr.is_ipv6() && indicator.is_ipv6())
                 {
+                    #[cfg(target_os = "windows")]
+                    {
+                        let is_udp = matches!(socket.r#type()?, socket2::Type::DGRAM);
+                        crate::arch::windows::setup_socket_for_win(socket, addr, iface, is_udp)?;
+                    }
                     if let Err(e) = socket.bind(addr) {
                         last_err = Some(e);
                         continue;

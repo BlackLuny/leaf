@@ -263,6 +263,7 @@ netstack-smoltcp = {version = "0.1.3", optional = true}
 network-interface = "2.0"
 # todo move to windows only
 tproxy-config = { version = "7", default-features = false }
+nix = { version = "0.29.0", features = ["sched", "socket", "ioctl", "net"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ipconfig = "0.3"

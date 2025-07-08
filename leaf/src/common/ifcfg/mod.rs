@@ -7,7 +7,7 @@ mod windows;
 
 mod route;
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 
 use async_trait::async_trait;
 use tokio::process::Command;
@@ -143,3 +143,56 @@ pub type IfConfiger = DummyIfConfiger;
 
 #[cfg(target_os = "windows")]
 pub use windows::RegistryManager;
+
+
+
+
+pub fn setup_sokcet2_ext(
+    socket2_socket: &socket2::Socket,
+    bind_addr: &SocketAddr,
+    #[allow(unused_variables)] bind_dev: Option<String>,
+) -> Result<(), Error> {
+    #[cfg(target_os = "windows")]
+    {
+        let is_udp = matches!(socket2_socket.r#type()?, socket2::Type::DGRAM);
+        crate::common::arch::windows::setup_socket_for_win(socket2_socket, bind_addr, bind_dev, is_udp)?;
+    }
+
+    if let Err(e) = socket2_socket.bind(&socket2::SockAddr::from(*bind_addr)) {
+        if bind_addr.is_ipv4() {
+            return Err(e.into());
+        } else {
+            tracing::warn!(?e, "bind failed, do not return error for ipv6");
+        }
+    }
+
+    // #[cfg(all(unix, not(target_os = "solaris"), not(target_os = "illumos")))]
+    // socket2_socket.set_reuse_port(true)?;
+
+    if bind_addr.ip().is_unspecified() {
+        return Ok(());
+    }
+
+    // linux/mac does not use interface of bind_addr to send packet, so we need to bind device
+    // win can handle this with bind correctly
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    if let Some(dev_name) = bind_dev {
+        // use IP_BOUND_IF to bind device
+        unsafe {
+            let dev_idx = nix::libc::if_nametoindex(dev_name.as_str().as_ptr() as *const i8);
+            tracing::warn!(?dev_idx, ?dev_name, "bind device");
+            socket2_socket.bind_device_by_index_v4(std::num::NonZeroU32::new(dev_idx))?;
+            tracing::warn!(?dev_idx, ?dev_name, "bind device doen");
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+    if let Some(dev_name) = bind_dev {
+        tracing::trace!(dev_name = ?dev_name, "bind device");
+        if let Err(e) = socket2_socket.bind_device(Some(dev_name.as_bytes())) {
+            tracing::warn!(?e, dev_name = ?dev_name, bind_addr = ?bind_addr, "bind device failed");
+        }
+    }
+
+    Ok(())
+}
