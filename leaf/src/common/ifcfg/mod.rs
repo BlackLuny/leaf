@@ -7,7 +7,7 @@ mod windows;
 
 mod route;
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::{net::{Ipv4Addr, SocketAddr}, ops::Deref};
 
 use async_trait::async_trait;
 use socket2::SockRef;
@@ -153,6 +153,7 @@ pub fn setup_sokcet2_ext(
     bind_addr: &SocketAddr,
     #[allow(unused_variables)] bind_dev: Option<String>,
 ) -> Result<(), Error> {
+    let socket2_socket = socket2_socket.deref();
     #[cfg(target_os = "windows")]
     {
         let is_udp = matches!(socket2_socket.r#type()?, socket2::Type::DGRAM);
