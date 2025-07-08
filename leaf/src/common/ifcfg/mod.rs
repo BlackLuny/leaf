@@ -156,7 +156,7 @@ pub fn setup_sokcet2_ext(
     #[cfg(target_os = "windows")]
     {
         let is_udp = matches!(socket2_socket.r#type()?, socket2::Type::DGRAM);
-        crate::common::arch::windows::setup_socket_for_win(socket2_socket, bind_addr, bind_dev, is_udp)?;
+        crate::common::arch::windows::setup_socket_for_win(socket2_socket.deref(), bind_addr, bind_dev, is_udp)?;
     }
 
     if let Err(e) = socket2_socket.bind(&socket2::SockAddr::from(*bind_addr)) {
