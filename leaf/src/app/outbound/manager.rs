@@ -607,11 +607,13 @@ impl OutboundManager {
                         }
                         let dns_resolver = Arc::new(DnsClientWrapper(dns_client.clone()))
                             as Arc<dyn ::private_tun::dns_cache::DnsResolver>;
+                        let notifier = Arc::new(tokio::sync::Notify::new());
+                        let notifier_clone = notifier.clone();
                         tokio::spawn(async move {
                             use ::private_tun::snell_impl_ver::client_run::init_ring_provider;
                             use socket2::Socket;
                             let _ = init_ring_provider();
-                            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                            notifier_clone.notified().await;
                             let _h = run_client_with_config_and_name(
                                 client_config,
                                 inbound_rx,
@@ -629,6 +631,7 @@ impl OutboundManager {
                         let client = Arc::new(private_tun::outbound::Client::new(
                             tokio::sync::Mutex::new(inbound_tx),
                             cancel_token_clone,
+                            notifier,
                         ));
 
                         // Create stream handler
