@@ -22,6 +22,8 @@ pub enum Error {
     IoError(#[from] std::io::Error),
     #[error("Not found")]
     NotFound,
+    #[error("Timeout error: {0}")]
+    Timeout(#[from] tokio::time::error::Elapsed),
     #[error("other error: {0}")]
     Other(#[from] anyhow::Error),
 }
@@ -97,8 +99,8 @@ async fn run_shell_cmd(cmd: &str) -> Result<(), Error> {
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .await?;
-        stdout = crate::utils::utf8_or_gbk_to_string(cmd_out.stdout.as_slice());
-        stderr = crate::utils::utf8_or_gbk_to_string(cmd_out.stderr.as_slice());
+        stdout = crate::common::arch::windows::utf8_or_gbk_to_string(cmd_out.stdout.as_slice());
+        stderr = crate::common::arch::windows::utf8_or_gbk_to_string(cmd_out.stderr.as_slice());
     };
 
     #[cfg(not(target_os = "windows"))]

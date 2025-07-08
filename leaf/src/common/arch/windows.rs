@@ -20,6 +20,21 @@ use windows::{
     },
 };
 
+#[cfg(target_os = "windows")]
+pub fn utf8_or_gbk_to_string(s: &[u8]) -> String {
+    use encoding::{all::GBK, DecoderTrap, Encoding};
+    if let Ok(utf8_str) = String::from_utf8(s.to_vec()) {
+        utf8_str
+    } else {
+        // 如果解码失败，则尝试使用GBK解码
+        if let Ok(gbk_str) = GBK.decode(&s, DecoderTrap::Strict) {
+            gbk_str
+        } else {
+            String::from_utf8_lossy(s).to_string()
+        }
+    }
+}
+
 pub fn disable_connection_reset<S: AsRawSocket>(socket: &S) -> io::Result<()> {
     let handle = SOCKET(socket.as_raw_socket() as usize);
 
