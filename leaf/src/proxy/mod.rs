@@ -25,7 +25,7 @@ use {
     tokio::net::UnixStream, tracing::trace,
 };
 
-use crate::common::ifcfg::setup_sokcet2_ext;
+use crate::common::ifcfg::{get_interface_name_by_ip, setup_sokcet2_ext};
 use crate::{
     app::SyncDnsClient,
     common::resolver::Resolver,
@@ -284,7 +284,7 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                 }
                 #[cfg(target_os = "windows")]
                 {
-                    setup_sokcet2_ext(
+                    if let Err(e) = setup_sokcet2_ext(
                         &socket.get_socket_ref(),
                         &default_bind_ip,
                         Some(iface.to_owned()),
@@ -294,7 +294,13 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                             io::ErrorKind::Other,
                             format!("failed to bind socket to {}: {:?}", default_bind_ip, e),
                         )
-                    })?;
+                    }) {
+                        error!("failed to bind socket to {}: {:?}", default_bind_ip, e);
+                        last_err = Some(e);
+                        continue;
+                    }
+                    debug!("socket bind {}", iface);
+                    return Ok(());
                 }
                 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                 {
@@ -309,13 +315,13 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                     || (addr.is_ipv6() && indicator.is_ipv6())
                 {
                     #[cfg(target_os = "windows")]
-                    if let Err(e) = setup_sokcet2_ext(&socket.get_socket_ref(), addr, None).map_err(|e| {
+                    if let Err(e) = setup_sokcet2_ext(&socket.get_socket_ref(), addr, get_interface_name_by_ip(&addr.ip())).map_err(|e| {
                         io::Error::new(
                             io::ErrorKind::Other,
                             format!("failed to bind socket to {}: {:?}", addr, e),
                         )
                     }) {
-                        debug!("failed to bind socket to {}: {:?}", addr, e);
+                        error!("failed to bind socket to {}: {:?}", addr, e);
                         last_err = Some(e);
                         continue;
                     }

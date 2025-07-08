@@ -7,9 +7,10 @@ mod windows;
 
 mod route;
 
-use std::{net::{Ipv4Addr, SocketAddr}, ops::Deref};
+use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, ops::Deref};
 
 use async_trait::async_trait;
+use network_interface::NetworkInterfaceConfig;
 use socket2::SockRef;
 use tokio::process::Command;
 
@@ -146,7 +147,22 @@ pub type IfConfiger = DummyIfConfiger;
 pub use windows::RegistryManager;
 
 
+pub fn get_interface_name_by_ip(local_ip: &IpAddr) -> Option<String> {
+    if local_ip.is_unspecified() || local_ip.is_multicast() {
+        return None;
+    }
+    let ifaces = network_interface::NetworkInterface::show().ok()?;
+    for iface in ifaces {
+        for addr in iface.addr {
+            if addr.ip() == *local_ip {
+                return Some(iface.name);
+            }
+        }
+    }
 
+    tracing::error!(?local_ip, "can not find interface name by ip");
+    None
+}
 
 pub fn setup_sokcet2_ext(
     socket2_socket: &SockRef,
