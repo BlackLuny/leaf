@@ -290,7 +290,7 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                 if (addr.is_ipv4() && indicator.is_ipv4())
                     || (addr.is_ipv6() && indicator.is_ipv6())
                 {
-                    setup_sokcet2_ext(socket.get_socket_ref(), addr, None).map_err(|e| {
+                    setup_sokcet2_ext(&socket.get_socket_ref(), addr, None).map_err(|e| {
                         io::Error::new(
                             io::ErrorKind::Other,
                             format!("failed to bind socket to {}: {:?}", addr, e),
