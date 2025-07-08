@@ -282,7 +282,7 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                     debug!("socket bind {}", iface);
                     return Ok(());
                 }
-                // #[cfg(target_os = "windows")]
+                #[cfg(target_os = "windows")]
                 {
                     setup_sokcet2_ext(
                         &socket.get_socket_ref(),
@@ -308,12 +308,17 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                 if (addr.is_ipv4() && indicator.is_ipv4())
                     || (addr.is_ipv6() && indicator.is_ipv6())
                 {
-                    setup_sokcet2_ext(&socket.get_socket_ref(), addr, None).map_err(|e| {
+                    #[cfg(target_os = "windows")]
+                    if let Err(e) = setup_sokcet2_ext(&socket.get_socket_ref(), addr, None).map_err(|e| {
                         io::Error::new(
                             io::ErrorKind::Other,
                             format!("failed to bind socket to {}: {:?}", addr, e),
                         )
-                    })?;
+                    }) {
+                        debug!("failed to bind socket to {}: {:?}", addr, e);
+                        last_err = Some(e);
+                        continue;
+                    }
                     if let Err(e) = socket.bind(addr) {
                         last_err = Some(e);
                         continue;
