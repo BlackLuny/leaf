@@ -618,7 +618,8 @@ impl OutboundManager {
                                 Some(cancel_token),
                                 true,
                                 Some(Arc::new(Box::new(move |socket: &Socket, target_addr| {
-                                    let _ = bind_socket(socket, target_addr);
+                                    let r = bind_socket(socket, target_addr);
+                                    debug!("hammer bind socket to {}: {:?}", target_addr, r);
                                 }))),
                                 Some(dns_resolver),
                             )
