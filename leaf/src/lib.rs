@@ -436,17 +436,12 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         .map_err(Error::Config)?;
     runners.append(&mut inbound_net_runners);
 
-    #[cfg(all(
-        feature = "inbound-tun",
-        any(target_os = "macos", target_os = "linux", target_os = "windows")
-    ))]
+    #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
     let net_info = if inbound_manager.has_tun_listener() && inbound_manager.tun_auto() {
         sys::get_net_info()
     } else {
         sys::NetInfo::default()
     };
-
-    println!("net_info: {:?}", net_info);
 
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
     {
