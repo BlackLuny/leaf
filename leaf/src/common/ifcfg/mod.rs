@@ -7,7 +7,10 @@ mod windows;
 
 mod route;
 
-use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, ops::Deref};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    ops::Deref,
+};
 
 use async_trait::async_trait;
 use network_interface::NetworkInterfaceConfig;
@@ -26,6 +29,8 @@ pub enum Error {
     NotFound,
     #[error("Timeout error: {0}")]
     Timeout(#[from] tokio::time::error::Elapsed),
+    #[error("setup socket for windows error: {0}")]
+    SetupForWindows(std::io::Error),
     #[error("other error: {0}")]
     Other(#[from] anyhow::Error),
 }
@@ -146,7 +151,6 @@ pub type IfConfiger = DummyIfConfiger;
 #[cfg(target_os = "windows")]
 pub use windows::RegistryManager;
 
-
 pub fn get_interface_name_by_ip(local_ip: &IpAddr) -> Option<String> {
     if local_ip.is_unspecified() || local_ip.is_multicast() {
         return None;
@@ -173,7 +177,13 @@ pub fn setup_sokcet2_ext(
     #[cfg(target_os = "windows")]
     {
         let is_udp = matches!(socket2_socket.r#type()?, socket2::Type::DGRAM);
-        crate::common::arch::windows::setup_socket_for_win(socket2_socket, bind_addr, bind_dev, is_udp)?;
+        crate::common::arch::windows::setup_socket_for_win(
+            socket2_socket,
+            bind_addr,
+            bind_dev,
+            is_udp,
+        )
+        .map_err(Error::SetupForWindows)?;
     }
 
     if let Err(e) = socket2_socket.bind(&socket2::SockAddr::from(*bind_addr)) {
