@@ -13,7 +13,7 @@ use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
-use tracing::debug;
+use tracing::{debug, error};
 
 #[cfg(unix)]
 use std::os::unix::io::{AsFd, AsRawFd};
