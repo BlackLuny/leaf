@@ -3,6 +3,8 @@ pub mod io;
 pub mod net;
 pub mod resolver;
 pub mod sniff;
+pub mod ifcfg;
+pub mod arch;
 
 #[cfg(target_os = "macos")]
 pub mod cmd_macos;

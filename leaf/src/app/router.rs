@@ -6,7 +6,7 @@ use anyhow::Result;
 use cidr::IpCidr;
 use futures::TryFutureExt;
 use maxminddb::geoip2::Country;
-#[cfg(not(target_vendor = "uwp"))]
+#[cfg(not(target_os = "windows"))]
 use maxminddb::Mmap;
 use tracing::{debug, warn};
 
@@ -438,11 +438,11 @@ impl Router {
                     let reader = match mmdb_readers.get(&mmdb.file) {
                         Some(r) => r.clone(),
                         None => match {
-                            #[cfg(not(target_vendor = "uwp"))]
+                            #[cfg(not(target_os = "windows"))]
                             {
                                 maxminddb::Reader::open_mmap(&mmdb.file)
                             }
-                            #[cfg(target_vendor = "uwp")]
+                            #[cfg(target_os = "windows")]
                             {
                                 maxminddb::Reader::open_readfile(&mmdb.file)
                             }

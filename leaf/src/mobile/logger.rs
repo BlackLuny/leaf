@@ -70,7 +70,7 @@ impl Default for ConsoleWriter {
 unsafe impl Send for ConsoleWriter {}
 
 impl Write for ConsoleWriter {
-    #[cfg(not(target_vendor = "uwp"))]
+    #[cfg(not(target_os = "windows"))]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0.extend_from_slice(buf);
         if let Some(i) = memchr::memchr(b'\n', &self.0) {
@@ -80,7 +80,7 @@ impl Write for ConsoleWriter {
         Ok(buf.len())
     }
 
-    #[cfg(target_vendor = "uwp")]
+    #[cfg(target_os = "windows")]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         log_text(String::from_utf8_lossy(buf).as_ref());
         Ok(buf.len())

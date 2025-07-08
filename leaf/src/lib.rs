@@ -40,7 +40,7 @@ pub mod util;
     target_os = "ios",
     target_os = "macos",
     target_os = "android",
-    target_vendor = "uwp"
+    target_os = "windows"
 ))]
 pub mod mobile;
 
@@ -438,7 +438,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 
     #[cfg(all(
         feature = "inbound-tun",
-        any(target_os = "macos", target_os = "linux", target_vendor = "uwp")
+        any(target_os = "macos", target_os = "linux", target_os = "windows")
     ))]
     let net_info = if inbound_manager.has_tun_listener() && inbound_manager.tun_auto() {
         sys::get_net_info()
@@ -483,7 +483,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
             target_os = "android",
             target_os = "macos",
             target_os = "linux",
-            target_vendor = "uwp"
+            target_os = "windows"
         )
     ))]
     if let Ok(r) = inbound_manager.get_tun_runner() {
@@ -577,7 +577,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         .map_err(|_| Error::RuntimeManager)?
         .insert(rt_id, runtime_manager);
 
-    #[cfg(not(target_vendor = "uwp"))]
+    #[cfg(not(target_os = "windows"))]
     {
         trace!("added runtime {}", &rt_id);
 
