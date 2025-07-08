@@ -473,6 +473,12 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 
     #[cfg(all(
         feature = "inbound-tun",
+        any(target_os = "linux", target_os = "windows", target_os = "macos")
+    ))]
+    let mut restore: Option<tproxy_config::TproxyState> = None;
+
+    #[cfg(all(
+        feature = "inbound-tun",
         any(
             target_os = "ios",
             target_os = "android",
@@ -481,8 +487,20 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
             target_os = "windows"
         )
     ))]
-    if let Ok(r) = inbound_manager.get_tun_runner() {
+    if let Ok((r, tun_info)) = inbound_manager.get_tun_runner() {
         runners.push(r);
+        // for windows we using tproxy to setup the tun device
+        #[cfg(target_os = "windows")]
+        {
+            // windows route process
+            let mut tproxy_args = tproxy_config::TproxyArgs::new()
+                .tun_name(&tun_info.tun_name)
+                .tun_ip(tun_info.tun_ip)
+                .tun_netmask(tun_info.tun_netmask)
+                .tun_gateway(tun_info.tun_gateway)
+                .tun_mtu(tun_info.tun_mtu);
+            restore = Some(rt.block_on(tproxy_config::tproxy_setup(&tproxy_args))?);
+        }
     }
 
     #[cfg(feature = "inbound-cat")]
@@ -558,6 +576,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 
     // Monitor shutdown signal.
     tasks.push(Box::pin(async move {
+        let _restore = restore.take();
         let _ = shutdown_rx.recv().await;
     }));
 

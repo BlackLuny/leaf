@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -8,7 +8,9 @@ use tokio::sync::mpsc::channel as tokio_channel;
 use tokio::sync::mpsc::{Receiver as TokioReceiver, Sender as TokioSender};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, trace, warn};
+use tun::AbstractDevice;
 
+use crate::proxy::tun::TunInfo;
 use crate::{
     app::dispatcher::Dispatcher,
     app::fake_dns::{FakeDns, FakeDnsMode},
@@ -170,10 +172,11 @@ pub fn new(
     inbound: Inbound,
     dispatcher: Arc<Dispatcher>,
     nat_manager: Arc<NatManager>,
-) -> Result<Runner> {
+) -> Result<(Runner, TunInfo)> {
     let settings = TunInboundSettings::parse_from_bytes(&inbound.settings)?;
 
     let mut cfg = tun::Configuration::default();
+    let mut tun_info = TunInfo::default();
     if settings.fd >= 0 {
         cfg.raw_fd(settings.fd);
     } else if settings.auto {
@@ -186,13 +189,22 @@ pub fn new(
         {
             cfg.netmask(&*option::DEFAULT_TUN_IPV4_MASK);
         }
-
+        tun_info.tun_name = option::DEFAULT_TUN_NAME.clone();
+        tun_info.tun_ip = option::DEFAULT_TUN_IPV4_ADDR.parse::<IpAddr>().unwrap();
+        tun_info.tun_netmask = option::DEFAULT_TUN_IPV4_MASK.parse::<IpAddr>().unwrap();
+        tun_info.tun_gateway = option::DEFAULT_TUN_IPV4_GW.parse::<IpAddr>().unwrap();
+        tun_info.tun_mtu = 1500;
         cfg.up();
     } else {
-        cfg.tun_name(settings.name)
-            .address(settings.address)
-            .destination(settings.gateway)
+        cfg.tun_name(settings.name.clone())
+            .address(settings.address.clone())
+            .destination(settings.gateway.clone())
             .mtu(settings.mtu as u16);
+        tun_info.tun_name = settings.name;
+        tun_info.tun_ip = settings.address.parse::<IpAddr>().unwrap();
+        tun_info.tun_netmask = settings.netmask.parse::<IpAddr>().unwrap();
+        tun_info.tun_gateway = settings.gateway.parse::<IpAddr>().unwrap();
+        tun_info.tun_mtu = settings.mtu as u16;
 
         #[cfg(not(any(target_arch = "mips", target_arch = "mips64")))]
         {
@@ -217,7 +229,10 @@ pub fn new(
     };
 
     let tun = tun::create_as_async(&cfg).map_err(|e| anyhow!("create tun failed: {}", e))?;
-
+    #[cfg(target_os = "macos")]
+    {
+        tun_info.tun_name = tun.tun_name()?;
+    }
     if settings.auto {
         assert!(settings.fd == -1, "tun-auto is not compatible with tun-fd");
     }
@@ -230,90 +245,93 @@ pub fn new(
         .tcp_buffer_size(*crate::option::NETSTACK_TCP_UPLINK_CHANNEL_SIZE)
         .build()?;
 
-    Ok(Box::pin(async move {
-        let fakedns = Arc::new(FakeDns::new(fake_dns_mode));
-        for filter in fake_dns_filters.into_iter() {
-            fakedns.add_filter(filter).await;
-        }
+    Ok((
+        Box::pin(async move {
+            let fakedns = Arc::new(FakeDns::new(fake_dns_mode));
+            for filter in fake_dns_filters.into_iter() {
+                fakedns.add_filter(filter).await;
+            }
 
-        let inbound_tag = inbound.tag.clone();
-        let framed = tun.into_framed();
-        let (mut tun_sink, mut tun_stream) = framed.split();
-        let (mut stack_sink, mut stack_stream) = stack.split();
+            let inbound_tag = inbound.tag.clone();
+            let framed = tun.into_framed();
+            let (mut tun_sink, mut tun_stream) = framed.split();
+            let (mut stack_sink, mut stack_stream) = stack.split();
 
-        let mut futs: Vec<Runner> = Vec::new();
+            let mut futs: Vec<Runner> = Vec::new();
 
-        futs.push(Box::pin(async move {
-            runner.unwrap().await;
-        }));
+            futs.push(Box::pin(async move {
+                runner.unwrap().await;
+            }));
 
-        // Reads packet from stack and sends to TUN.
-        futs.push(Box::pin(async move {
-            while let Some(pkt) = stack_stream.next().await {
-                match pkt {
-                    Ok(pkt) => {
-                        if let Err(e) = tun_sink.send(pkt).await {
-                            // TODO Return the error
-                            error!("Sending packet to TUN failed: {}", e);
+            // Reads packet from stack and sends to TUN.
+            futs.push(Box::pin(async move {
+                while let Some(pkt) = stack_stream.next().await {
+                    match pkt {
+                        Ok(pkt) => {
+                            if let Err(e) = tun_sink.send(pkt).await {
+                                // TODO Return the error
+                                error!("Sending packet to TUN failed: {}", e);
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            error!("Net stack erorr: {}", e);
                             return;
                         }
                     }
-                    Err(e) => {
-                        error!("Net stack erorr: {}", e);
-                        return;
-                    }
                 }
-            }
-        }));
+            }));
 
-        // Reads packet from TUN and sends to stack.
-        futs.push(Box::pin(async move {
-            while let Some(pkt) = tun_stream.next().await {
-                match pkt {
-                    Ok(pkt) => {
-                        if let Err(e) = stack_sink.send(pkt).await {
-                            error!("Sending packet to NetStack failed: {}", e);
+            // Reads packet from TUN and sends to stack.
+            futs.push(Box::pin(async move {
+                while let Some(pkt) = tun_stream.next().await {
+                    match pkt {
+                        Ok(pkt) => {
+                            if let Err(e) = stack_sink.send(pkt).await {
+                                error!("Sending packet to NetStack failed: {}", e);
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            error!("TUN error: {}", e);
                             return;
                         }
                     }
-                    Err(e) => {
-                        error!("TUN error: {}", e);
-                        return;
-                    }
                 }
-            }
-        }));
+            }));
 
-        // Extracts TCP connections from stack and sends them to the dispatcher.
-        let inbound_tag_cloned = inbound_tag.clone();
-        let fakedns_cloned = fakedns.clone();
-        futs.push(Box::pin(async move {
-            let mut tcp_listener = tcp_listener.unwrap();
-            while let Some((stream, local_addr, remote_addr)) = tcp_listener.next().await {
-                tokio::spawn(handle_inbound_stream(
-                    stream,
-                    local_addr,
-                    remote_addr,
-                    inbound_tag_cloned.clone(),
-                    dispatcher.clone(),
-                    fakedns_cloned.clone(),
-                ));
-            }
-        }));
+            // Extracts TCP connections from stack and sends them to the dispatcher.
+            let inbound_tag_cloned = inbound_tag.clone();
+            let fakedns_cloned = fakedns.clone();
+            futs.push(Box::pin(async move {
+                let mut tcp_listener = tcp_listener.unwrap();
+                while let Some((stream, local_addr, remote_addr)) = tcp_listener.next().await {
+                    tokio::spawn(handle_inbound_stream(
+                        stream,
+                        local_addr,
+                        remote_addr,
+                        inbound_tag_cloned.clone(),
+                        dispatcher.clone(),
+                        fakedns_cloned.clone(),
+                    ));
+                }
+            }));
 
-        // Receive and send UDP packets between netstack and NAT manager. The NAT
-        // manager would maintain UDP sessions and send them to the dispatcher.
-        futs.push(Box::pin(async move {
-            handle_inbound_datagram(
-                udp_socket.unwrap(),
-                inbound_tag,
-                nat_manager,
-                fakedns.clone(),
-            )
-            .await;
-        }));
+            // Receive and send UDP packets between netstack and NAT manager. The NAT
+            // manager would maintain UDP sessions and send them to the dispatcher.
+            futs.push(Box::pin(async move {
+                handle_inbound_datagram(
+                    udp_socket.unwrap(),
+                    inbound_tag,
+                    nat_manager,
+                    fakedns.clone(),
+                )
+                .await;
+            }));
 
-        info!("start tun inbound");
-        futures::future::select_all(futs).await;
-    }))
+            info!("start tun inbound");
+            futures::future::select_all(futs).await;
+        }),
+        tun_info,
+    ))
 }

@@ -8,6 +8,17 @@ use crate::app::dispatcher::Dispatcher;
 use crate::app::nat_manager::NatManager;
 use crate::config;
 use crate::proxy;
+#[cfg(all(
+        feature = "inbound-tun",
+        any(
+            target_os = "ios",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "windows"
+        )
+    ))]
+use crate::proxy::tun::TunInfo;
 use crate::proxy::AnyInboundHandler;
 use crate::Runner;
 
@@ -351,7 +362,7 @@ impl InboundManager {
             target_os = "windows"
         )
     ))]
-    pub fn get_tun_runner(&self) -> Result<Runner> {
+    pub fn get_tun_runner(&self) -> Result<(Runner, TunInfo)> {
         if let Some(listener) = &self.tun_listener {
             return listener.listen();
         }
