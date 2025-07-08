@@ -1,6 +1,6 @@
 use std::ffi::CString;
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -225,6 +225,10 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
         }
         _ => {}
     }
+    let default_bind_ip = match indicator {
+        SocketAddr::V4(..) => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)),
+        SocketAddr::V6(..) => SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0)),
+    };
     let mut last_err = None;
     for bind in option::OUTBOUND_BINDS.iter() {
         match bind {
@@ -277,6 +281,20 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                     }
                     debug!("socket bind {}", iface);
                     return Ok(());
+                }
+                // #[cfg(target_os = "windows")]
+                {
+                    setup_sokcet2_ext(
+                        &socket.get_socket_ref(),
+                        &default_bind_ip,
+                        Some(iface.to_owned()),
+                    )
+                    .map_err(|e| {
+                        io::Error::new(
+                            io::ErrorKind::Other,
+                            format!("failed to bind socket to {}: {:?}", default_bind_ip, e),
+                        )
+                    })?;
                 }
                 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                 {
