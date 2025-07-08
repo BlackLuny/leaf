@@ -13,12 +13,12 @@ pub struct Handler {
 
 #[async_trait]
 impl OutboundDatagramHandler for Handler {
-    fn connect_addr(&self) -> OutboundConnect {
+    async fn connect_addr(&self, sess: &Session) -> OutboundConnect {
         let a = &self.actors[self.selected.load(Ordering::Relaxed)];
         match a.datagram() {
-            Ok(h) => return h.connect_addr(),
+            Ok(h) => return h.connect_addr(sess).await,
             _ => match a.stream() {
-                Ok(h) => return h.connect_addr(),
+                Ok(h) => return h.connect_addr(sess).await,
                 _ => (),
             },
         }
@@ -38,7 +38,7 @@ impl OutboundDatagramHandler for Handler {
         transport: Option<AnyOutboundTransport>,
     ) -> io::Result<AnyOutboundDatagram> {
         let a = &self.actors[self.selected.load(Ordering::Relaxed)];
-        log::debug!("select handles to [{}]", a.tag());
+        tracing::debug!("select handles to [{}]", a.tag());
         a.datagram()?.handle(sess, transport).await
     }
 }

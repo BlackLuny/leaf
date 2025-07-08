@@ -80,7 +80,7 @@ all-endpoints = [
     "outbound-tryall",
     "outbound-chain",
     "outbound-private-tun",
-    # "outbound-select",
+    "outbound-select",
 ]
 
 # Ring-related

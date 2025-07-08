@@ -12,12 +12,12 @@ pub struct Handler {
 
 #[async_trait]
 impl OutboundStreamHandler for Handler {
-    fn connect_addr(&self) -> OutboundConnect {
+    async fn connect_addr(&self, sess: &Session) -> OutboundConnect {
         let a = &self.actors[self.selected.load(Ordering::Relaxed)];
         match a.stream() {
-            Ok(h) => return h.connect_addr(),
+            Ok(h) => return h.connect_addr(sess).await,
             _ => match a.datagram() {
-                Ok(h) => return h.connect_addr(),
+                Ok(h) => return h.connect_addr(sess).await,
                 _ => (),
             },
         }
@@ -27,10 +27,11 @@ impl OutboundStreamHandler for Handler {
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,
+        lhs: Option<&mut AnyStream>,
         stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
         let a = &self.actors[self.selected.load(Ordering::Relaxed)];
-        log::debug!("select handles to [{}]", a.tag());
-        a.stream()?.handle(sess, stream).await
+        tracing::debug!("select handles to [{}]", a.tag());
+        a.stream()?.handle(sess, lhs, stream).await
     }
 }
