@@ -421,7 +421,7 @@ pub struct Router {
 
 impl Router {
     fn load_rules(rules: &mut Vec<Rule>, routing_rules: &mut [config::router::Rule]) {
-        let mut mmdb_readers: HashMap<String, Arc<maxminddb::Reader<Mmap>>> = HashMap::new();
+        let mut mmdb_readers: HashMap<String, Arc<maxminddb::Reader<_>>> = HashMap::new();
         for rr in routing_rules.iter_mut() {
             let mut cond_and = ConditionAnd::new();
 
