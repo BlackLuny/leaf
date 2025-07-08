@@ -12,7 +12,7 @@ pub struct WindowsIfConfiger {}
 
 impl WindowsIfConfiger {
     pub fn get_interface_index(name: &str) -> Option<u32> {
-        crate::arch::windows::find_interface_index(name).ok()
+        crate::common::arch::windows::find_interface_index(name).ok()
     }
 
     async fn list_ipv4(name: &str) -> Result<Vec<Ipv4Addr>, Error> {

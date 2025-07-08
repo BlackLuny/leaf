@@ -20,6 +20,8 @@ pub enum Error {
     ShellCommandError(String),
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Not found")]
+    NotFound,
     #[error("other error: {0}")]
     Other(#[from] anyhow::Error),
 }
