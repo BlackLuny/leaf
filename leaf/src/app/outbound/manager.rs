@@ -611,7 +611,6 @@ impl OutboundManager {
                             use ::private_tun::snell_impl_ver::client_run::init_ring_provider;
                             use socket2::Socket;
                             let _ = init_ring_provider();
-                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                             let _h = run_client_with_config_and_name(
                                 client_config,
                                 inbound_rx,
