@@ -1,7 +1,7 @@
 pub mod datagram;
 pub mod stream;
 
-use std::sync::atomic::Ordering;
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 
 use async_ringbuf::traits::AsyncProducer;
 pub use datagram::Handler as DatagramHandler;
