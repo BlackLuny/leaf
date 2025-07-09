@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use dashmap::DashMap;
 use futures::future::{abortable, BoxFuture};
 use tokio::sync::{
     mpsc::{self, Sender},
@@ -42,33 +43,33 @@ impl std::fmt::Display for UdpPacket {
     }
 }
 
-type SessionMap = HashMap<DatagramSource, (Sender<UdpPacket>, oneshot::Sender<bool>, Instant)>;
+type SessionMap = DashMap<DatagramSource, (Sender<UdpPacket>, oneshot::Sender<bool>, Instant)>;
 
 pub struct NatManager {
-    sessions: Arc<Mutex<SessionMap>>,
+    sessions: Arc<SessionMap>,
     dispatcher: Arc<Dispatcher>,
     timeout_check_task: Mutex<Option<BoxFuture<'static, ()>>>,
 }
 
 impl NatManager {
     pub fn new(dispatcher: Arc<Dispatcher>) -> Self {
-        let sessions: Arc<Mutex<SessionMap>> = Arc::new(Mutex::new(HashMap::new()));
+        let sessions: Arc<SessionMap> = Arc::new(SessionMap::new());
         let sessions2 = sessions.clone();
 
         // The task is lazy, will not run until any sessions added.
         let timeout_check_task: BoxFuture<'static, ()> = Box::pin(async move {
             loop {
-                let mut sessions = sessions2.lock().await;
-                let n_total = sessions.len();
+                let n_total = sessions2.len();
                 let now = Instant::now();
                 let mut to_be_remove = Vec::new();
-                for (key, val) in sessions.iter() {
+                for kv in sessions2.iter() {
+                    let (key, val) = kv.pair();
                     if now.duration_since(val.2).as_secs() >= *option::UDP_SESSION_TIMEOUT {
                         to_be_remove.push(key.to_owned());
                     }
                 }
                 for key in to_be_remove.iter() {
-                    if let Some(sess) = sessions.remove(key) {
+                    if let Some((_, mut sess)) = sessions2.remove(key) {
                         // Sends a signal to abort downlink task, uplink task will
                         // end automatically when we drop the channel's tx side upon
                         // session removal.
@@ -79,9 +80,8 @@ impl NatManager {
                     }
                 }
                 drop(to_be_remove); // drop explicitly
-                let n_remaining = sessions.len();
+                let n_remaining = sessions2.len();
                 let n_removed = n_total - n_remaining;
-                drop(sessions); // release the lock
                 if n_removed > 0 {
                     debug!(
                         "removed {} nat sessions, remaining {} sessions",
@@ -102,15 +102,11 @@ impl NatManager {
         }
     }
 
-    fn _send(&self, guard: &mut MutexGuard<'_, SessionMap>, key: &DatagramSource, pkt: UdpPacket) {
-        if let Some(sess) = guard.get_mut(key) {
-            if let Err(err) = sess.0.try_send(pkt) {
-                trace!("send uplink packet failed {}", err);
-            }
-            sess.2 = Instant::now(); // activity update
-        } else {
-            error!("no nat association found");
+    async fn send_to(&self, sender: &mut Sender<UdpPacket>, instant: &mut Instant, pkt: UdpPacket) {
+        if let Err(err) = sender.send(pkt).await {
+            trace!("send uplink packet failed {}", err);
         }
+        *instant = Instant::now(); // activity update
     }
 
     pub async fn send<'a>(
@@ -121,10 +117,9 @@ impl NatManager {
         client_ch_tx: &Sender<UdpPacket>,
         pkt: UdpPacket,
     ) {
-        let mut guard = self.sessions.lock().await;
-
-        if guard.contains_key(dgram_src) {
-            self._send(&mut guard, dgram_src, pkt);
+        if let Some(mut entry) = self.sessions.get_mut(dgram_src) {
+            let (sender, _, instant) = entry.value_mut();
+            self.send_to(sender, instant, pkt).await;
             return;
         }
 
@@ -139,19 +134,21 @@ impl NatManager {
             sess.inbound_tag = inbound_tag.to_string();
         }
 
-        self.add_session(sess, *dgram_src, client_ch_tx.clone(), &mut guard)
+        self.add_session(sess, *dgram_src, client_ch_tx.clone(), &self.sessions)
             .await;
 
         debug!(
             "added udp session {} -> {} ({})",
             &dgram_src,
             &pkt.dst_addr,
-            guard.len(),
+            self.sessions.len(),
         );
 
-        self._send(&mut guard, dgram_src, pkt);
-
-        drop(guard);
+        if let Some(mut entry) = self.sessions.get_mut(dgram_src) {
+            let (sender, _, instant) = entry.value_mut();
+            self.send_to(sender, instant, pkt).await;
+            return;
+        }
     }
 
     pub async fn add_session<'a>(
@@ -159,7 +156,7 @@ impl NatManager {
         sess: Session,
         raddr: DatagramSource,
         client_ch_tx: Sender<UdpPacket>,
-        guard: &mut MutexGuard<'a, SessionMap>,
+        session_map: &SessionMap,
     ) {
         // Runs the lazy task for session cleanup job, this task will run only once.
         if let Some(task) = self.timeout_check_task.lock().await.take() {
@@ -170,7 +167,7 @@ impl NatManager {
             mpsc::channel(*crate::option::UDP_UPLINK_CHANNEL_SIZE);
         let (downlink_abort_tx, downlink_abort_rx) = oneshot::channel();
 
-        guard.insert(raddr, (target_ch_tx, downlink_abort_tx, Instant::now()));
+        session_map.insert(raddr, (target_ch_tx, downlink_abort_tx, Instant::now()));
 
         let dispatcher = self.dispatcher.clone();
         let sessions = self.sessions.clone();
@@ -184,7 +181,7 @@ impl NatManager {
                 Ok(s) => s,
                 Err(e) => {
                     debug!("dispatch {} failed: {}", &raddr, e);
-                    sessions.lock().await.remove(&raddr);
+                    sessions.remove(&raddr);
                     return;
                 }
             };
@@ -220,8 +217,7 @@ impl NatManager {
 
                             // activity update
                             {
-                                let mut sessions = sessions.lock().await;
-                                if let Some(sess) = sessions.get_mut(&raddr) {
+                                if let Some(mut sess) = sessions.get_mut(&raddr) {
                                     if addr.port() == 53 {
                                         // If the destination port is 53, we assume it's a
                                         // DNS query and set a negative timeout so it will
@@ -237,7 +233,7 @@ impl NatManager {
                         }
                     }
                 }
-                sessions.lock().await.remove(&raddr);
+                sessions.remove(&raddr);
             };
 
             let (downlink_task, downlink_task_handle) = abortable(downlink_task);

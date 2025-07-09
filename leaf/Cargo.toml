@@ -264,6 +264,7 @@ network-interface = "2.0"
 # todo move to windows only
 tproxy-config = { version = "7", default-features = false }
 nix = { version = "0.29.0", features = ["sched", "socket", "ioctl", "net"] }
+dashmap = "6.1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ipconfig = "0.3"
