@@ -251,7 +251,7 @@ warp = { version = "0.3", default-features = false, optional = true }
 notify = { version = "6", optional = true }
 
 # Private TUN
-private_tun = { path = "../../private_tun", optional = true }
+private_tun = { path = "../../private_tun", features = ["sqlite"], optional = true }
 async-ringbuf = {version ="0.3", default-features=false, optional = true}
 
 # TUN
@@ -274,7 +274,14 @@ jni = "0.21"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 pnet_datalink = { version = "0.34", package = "pnet_datalink", optional = true }
+pnet = { version = "0.35.0", features = ["serde"] }
 libc = "0.2"
+
+[target.'cfg(any(target_os = "linux"))'.dependencies]
+netlink-sys = "0.8.7"
+netlink-packet-route = "0.21.0"
+netlink-packet-core = { version = "0.7.0" }
+netlink-packet-utils = "0.5.2"
 
 # Used in mobile logger
 [target.'cfg(any(target_os = "ios", target_os = "macos", target_os = "android"))'.dependencies]

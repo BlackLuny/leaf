@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures::future::select_ok;
 use futures::stream::Stream;
 use futures::TryFutureExt;
-use socket2::{Domain, SockRef, Socket, Type};
+use socket2::{Domain, SockRef, Socket, TcpKeepalive, Type};
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpSocket, TcpStream, UdpSocket};
@@ -315,7 +315,12 @@ pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Res
                     || (addr.is_ipv6() && indicator.is_ipv6())
                 {
                     #[cfg(target_os = "windows")]
-                    if let Err(e) = setup_sokcet2_ext(&socket.get_socket_ref(), addr, get_interface_name_by_ip(&addr.ip())).map_err(|e| {
+                    if let Err(e) = setup_sokcet2_ext(
+                        &socket.get_socket_ref(),
+                        addr,
+                        get_interface_name_by_ip(&addr.ip()),
+                    )
+                    .map_err(|e| {
                         io::Error::new(
                             io::ErrorKind::Other,
                             format!("failed to bind socket to {}: {:?}", addr, e),
@@ -361,7 +366,11 @@ pub async fn new_udp_socket(indicator: &SocketAddr) -> io::Result<UdpSocket> {
 }
 
 fn apply_socket_opts_internal(s: SockRef) -> io::Result<()> {
-    s.set_keepalive(true)
+    let keep_alive = TcpKeepalive::new()
+        .with_time(Duration::from_secs(300))
+        .with_interval(std::time::Duration::from_secs(2));
+    s.set_tcp_keepalive(&keep_alive)?;
+    s.set_nodelay(true)
 }
 
 #[cfg(unix)]
