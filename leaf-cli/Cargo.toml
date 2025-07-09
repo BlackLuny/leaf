@@ -10,11 +10,14 @@ path = "src/main.rs"
 
 [features]
 default = [
-  "leaf/default-ring",
-  "leaf/outbound-quic",
-  "leaf/outbound-quic",
+  "leaf/inbound-shadowsocks",
+  "leaf/outbound-private-tun",
+  "leaf/ring-aead",
+  "leaf/config-json",
+  #"leaf/outbound-quic",
+  #"leaf/outbound-quic",
   "leaf/ctrlc",
-  "leaf/auto-reload",
+  #"leaf/auto-reload",
 ]
 
 [dependencies]

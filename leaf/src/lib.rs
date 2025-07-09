@@ -576,6 +576,10 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
 
     // Monitor shutdown signal.
     tasks.push(Box::pin(async move {
+        #[cfg(all(
+            feature = "inbound-tun",
+            any(target_os = "linux", target_os = "windows", target_os = "macos")
+        ))]
         let _restore = restore.take();
         let _ = shutdown_rx.recv().await;
     }));

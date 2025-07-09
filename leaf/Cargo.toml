@@ -114,7 +114,7 @@ outbound-amux= ["tokio-util"]
 outbound-quic = ["quinn", "rustls", "webpki-roots-old", "rustls-pemfile-old"]
 outbound-select = ["directories"]
 outbound-vmess = ["lz_fnv", "cfb-mode", "hmac", "aes", "sha3", "digest", "uuid", "md-5", "tokio-util", "byteorder"]
-outbound-private-tun = ["private_tun", "async-ringbuf"]
+outbound-private-tun = ["private_tun", "async-ringbuf", "serde_json"]
 
 # Inbounds
 inbound-trojan = ["sha2", "hex"]
