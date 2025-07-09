@@ -20,6 +20,15 @@ default = [
   #"leaf/auto-reload",
 ]
 
+# Windows 平台特定的 features
+windows = [
+  "leaf/inbound-tun",
+  "leaf/outbound-private-tun",
+  "leaf/config-json",
+  "leaf/ring-aead",
+  "leaf/ctrlc",
+]
+
 [dependencies]
 leaf = { path = "../leaf", default-features = false, optional = true }
 tokio = { version = "1", features = ["rt"] }
