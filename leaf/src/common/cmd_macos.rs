@@ -9,13 +9,13 @@ pub fn get_default_ipv4_gateway() -> Result<String> {
         .arg("get")
         .arg("1")
         .output()
-        .expect("failed to execute command");
+        .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     assert!(out.status.success());
     let out = String::from_utf8_lossy(&out.stdout).to_string();
     let cols: Vec<&str> = out
         .lines()
         .find(|l| l.contains("gateway"))
-        .unwrap()
+        .ok_or_else(|| anyhow::anyhow!("no gateway found"))?
         .split_whitespace()
         .map(str::trim)
         .collect();
@@ -31,13 +31,13 @@ pub fn get_default_ipv6_gateway() -> Result<String> {
         .arg("-inet6")
         .arg("::2")
         .output()
-        .expect("failed to execute command");
+        .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     assert!(out.status.success());
     let out = String::from_utf8_lossy(&out.stdout).to_string();
     let cols: Vec<&str> = out
         .lines()
         .find(|l| l.contains("gateway"))
-        .unwrap()
+        .ok_or_else(|| anyhow::anyhow!("no gateway found"))?
         .split_whitespace()
         .map(str::trim)
         .collect();
@@ -54,13 +54,13 @@ pub fn get_default_interface() -> Result<String> {
         .arg("get")
         .arg("1")
         .output()
-        .expect("failed to execute command");
+        .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     assert!(out.status.success());
     let out = String::from_utf8_lossy(&out.stdout).to_string();
     let cols: Vec<&str> = out
         .lines()
         .find(|l| l.contains("interface"))
-        .unwrap()
+        .ok_or_else(|| anyhow::anyhow!("no interface found"))?
         .split_whitespace()
         .map(str::trim)
         .collect();
@@ -83,7 +83,7 @@ pub fn add_interface_ipv4_address(
         .arg(mask.to_string())
         .arg(gw.to_string())
         .status()
-        .expect("failed to execute command");
+        .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     Ok(())
 }
 
@@ -95,7 +95,7 @@ pub fn add_interface_ipv6_address(name: &str, addr: Ipv6Addr, prefixlen: i32) ->
         .arg("prefixlen")
         .arg(prefixlen.to_string())
         .status()
-        .expect("failed to execute command");
+        .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     Ok(())
 }
 
@@ -107,7 +107,7 @@ pub fn add_default_ipv4_route(gateway: Ipv4Addr, interface: String, primary: boo
             .arg("default")
             .arg(gateway.to_string())
             .status()
-            .expect("failed to execute command");
+            .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     } else {
         Command::new("route")
             .arg("add")
@@ -117,7 +117,7 @@ pub fn add_default_ipv4_route(gateway: Ipv4Addr, interface: String, primary: boo
             .arg("-ifscope")
             .arg(interface)
             .status()
-            .expect("failed to execute command");
+            .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     };
     Ok(())
 }
@@ -136,7 +136,7 @@ pub fn add_default_ipv6_route(gateway: Ipv6Addr, interface: String, primary: boo
             .arg("default")
             .arg(gw)
             .status()
-            .expect("failed to execute command");
+            .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     } else {
         Command::new("route")
             .arg("add")
@@ -146,7 +146,7 @@ pub fn add_default_ipv6_route(gateway: Ipv6Addr, interface: String, primary: boo
             .arg("-ifscope")
             .arg(interface)
             .status()
-            .expect("failed to execute command");
+            .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     };
     Ok(())
 }
@@ -160,14 +160,14 @@ pub fn delete_default_ipv4_route(ifscope: Option<String>) -> Result<()> {
             .arg("-ifscope")
             .arg(ifscope)
             .status()
-            .expect("failed to execute command");
+            .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     } else {
         Command::new("route")
             .arg("delete")
             .arg("-inet")
             .arg("default")
             .status()
-            .expect("failed to execute command");
+            .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     };
     Ok(())
 }
@@ -181,14 +181,14 @@ pub fn delete_default_ipv6_route(ifscope: Option<String>) -> Result<()> {
             .arg("-ifscope")
             .arg(ifscope)
             .status()
-            .expect("failed to execute command");
+            .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     } else {
         Command::new("route")
             .arg("delete")
             .arg("-inet6")
             .arg("default")
             .status()
-            .expect("failed to execute command");
+            .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     };
     Ok(())
 }
@@ -198,12 +198,12 @@ pub fn get_ipv4_forwarding() -> Result<bool> {
         .arg("-n")
         .arg("net.inet.ip.forwarding")
         .output()
-        .expect("failed to execute command");
+        .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     let out = String::from_utf8_lossy(&out.stdout).to_string();
     Ok(out
         .trim()
         .parse::<i8>()
-        .expect("unexpected ip_forward value")
+        .map_err(|e| anyhow::anyhow!("unexpected ip_forward value: {}", e))?
         != 0)
 }
 
@@ -212,12 +212,12 @@ pub fn get_ipv6_forwarding() -> Result<bool> {
         .arg("-n")
         .arg("net.inet6.ip6.forwarding")
         .output()
-        .expect("failed to execute command");
+        .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     let out = String::from_utf8_lossy(&out.stdout).to_string();
     Ok(out
         .trim()
         .parse::<i8>()
-        .expect("unexpected ip_forward value")
+        .map_err(|e| anyhow::anyhow!("unexpected ip_forward value: {}", e))?
         != 0)
 }
 
@@ -229,7 +229,7 @@ pub fn set_ipv4_forwarding(val: bool) -> Result<()> {
             if val { "1" } else { "0" }
         ))
         .status()
-        .expect("failed to execute command");
+        .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     Ok(())
 }
 
@@ -241,6 +241,6 @@ pub fn set_ipv6_forwarding(val: bool) -> Result<()> {
             if val { "1" } else { "0" }
         ))
         .status()
-        .expect("failed to execute command");
+        .map_err(|e| anyhow::anyhow!("failed to execute command: {}", e))?;
     Ok(())
 }
