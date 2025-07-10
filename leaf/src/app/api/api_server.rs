@@ -45,6 +45,21 @@ mod models {
         pub send_completed: bool,
         pub recv_completed: bool,
     }
+
+    #[cfg(feature = "stat")]
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct OutboundInfo {
+        pub tag: String,
+        pub protocol: String,
+        pub sub_outbounds_tag: Option<Vec<String>>,
+    }
+
+    #[cfg(feature = "stat")]
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct OuboundLatencyResult {
+        pub tag: String,
+        pub latency: u128, // microseconds
+    }
 }
 
 mod handlers {
@@ -275,6 +290,7 @@ mod filters {
             .and_then(handlers::select_list)
     }
 
+    /// get all outbounds which can be selected
     #[cfg(feature = "outbound-select")]
     pub fn all_selects_outbound(
         rm: Arc<RuntimeManager>,

@@ -1,6 +1,7 @@
 use std::{
     collections::{hash_map, HashMap},
     convert::From,
+    ops::Deref,
 };
 
 #[cfg(feature = "outbound-select")]
@@ -61,8 +62,30 @@ use crate::{
 #[cfg(feature = "outbound-select")]
 use super::selector::OutboundSelector;
 
+pub struct OutBoundHandlerInfo {
+    handler: AnyOutboundHandler,
+    protocol: String,
+    settings: Vec<u8>,
+}
+impl OutBoundHandlerInfo {
+    pub fn new(handler: AnyOutboundHandler, protocol: String, settings: Vec<u8>) -> Self {
+        Self {
+            handler,
+            protocol,
+            settings,
+        }
+    }
+}
+
+impl Deref for OutBoundHandlerInfo {
+    type Target = AnyOutboundHandler;
+    fn deref(&self) -> &Self::Target {
+        &self.handler
+    }
+}
+
 pub struct OutboundManager {
-    handlers: HashMap<String, AnyOutboundHandler>,
+    handlers: HashMap<String, OutBoundHandlerInfo>,
     #[cfg(feature = "plugin")]
     external_handlers: super::plugin::ExternalHandlers,
     #[cfg(feature = "outbound-select")]
@@ -83,7 +106,7 @@ impl OutboundManager {
     fn load_handlers(
         outbounds: &[Outbound],
         dns_client: SyncDnsClient,
-        handlers: &mut HashMap<String, AnyOutboundHandler>,
+        handlers: &mut HashMap<String, OutBoundHandlerInfo>,
         #[cfg(feature = "plugin")] external_handlers: &mut super::plugin::ExternalHandlers,
         default_handler: &mut Option<String>,
         abort_handles: &mut Vec<AbortHandle>,
@@ -107,7 +130,14 @@ impl OutboundManager {
             for e in cached_handlers.iter() {
                 if e.protocol == outbound.protocol && e.settings == &outbound.settings {
                     trace!("add handler [{}] cloned from [{}]", &tag, &e.tag);
-                    handlers.insert(tag.clone(), e.handler.clone());
+                    handlers.insert(
+                        tag.clone(),
+                        OutBoundHandlerInfo::new(
+                            e.handler.clone(),
+                            e.protocol.to_owned(),
+                            e.settings.clone(),
+                        ),
+                    );
                     continue 'loop1;
                 }
             }
@@ -334,7 +364,14 @@ impl OutboundManager {
                 settings: &outbound.settings,
             });
             trace!("add handler [{}]", &tag);
-            handlers.insert(tag, h);
+            handlers.insert(
+                tag,
+                OutBoundHandlerInfo::new(
+                    h.clone(),
+                    outbound.protocol.clone(),
+                    outbound.settings.clone(),
+                ),
+            );
         }
 
         drop(cached_handlers);
@@ -653,7 +690,14 @@ impl OutboundManager {
                             .stream_handler(stream)
                             .datagram_handler(datagram)
                             .build();
-                        handlers.insert(tag.clone(), handler);
+                        handlers.insert(
+                            tag.clone(),
+                            OutBoundHandlerInfo::new(
+                                handler,
+                                "hammer".to_string(),
+                                outbound.settings.clone(),
+                            ),
+                        );
                         trace!("added handler [{}]", &tag);
                     }
                     #[cfg(feature = "plugin")]
@@ -694,7 +738,7 @@ impl OutboundManager {
     #[allow(unused_variables)]
     fn load_selectors(
         outbounds: &[Outbound],
-        handlers: &mut HashMap<String, AnyOutboundHandler>,
+        handlers: &mut HashMap<String, OutBoundHandlerInfo>,
         #[cfg(feature = "plugin")] external_handlers: &mut super::plugin::ExternalHandlers,
 
         #[cfg(feature = "outbound-select")] selectors: &mut super::Selectors,
@@ -725,7 +769,7 @@ impl OutboundManager {
                         let mut actors = Vec::new();
                         for actor in settings.actors.iter() {
                             if let Some(a) = handlers.get(actor) {
-                                actors.push(a.clone());
+                                actors.push(a.handler.clone());
                             } else {
                                 tracing::info!("select: {tag} actor not found: {}", actor);
                                 continue 'outbounds;
@@ -767,7 +811,14 @@ impl OutboundManager {
                             .stream_handler(stream)
                             .datagram_handler(datagram)
                             .build();
-                        handlers.insert(tag.clone(), handler);
+                        handlers.insert(
+                            tag.clone(),
+                            OutBoundHandlerInfo::new(
+                                handler,
+                                "select".to_string(),
+                                outbound.settings.clone(),
+                            ),
+                        );
                         trace!(
                             "added handler [{}] with actors: {}",
                             &tag,
@@ -799,7 +850,7 @@ impl OutboundManager {
         }
 
         // Load new outbounds.
-        let mut handlers: HashMap<String, AnyOutboundHandler> = HashMap::new();
+        let mut handlers: HashMap<String, OutBoundHandlerInfo> = HashMap::new();
 
         #[cfg(feature = "plugin")]
         let mut external_handlers = super::plugin::ExternalHandlers::new();
@@ -863,7 +914,7 @@ impl OutboundManager {
     }
 
     pub fn new(outbounds: &[Outbound], dns_client: SyncDnsClient) -> Result<Self> {
-        let mut handlers: HashMap<String, AnyOutboundHandler> = HashMap::new();
+        let mut handlers: HashMap<String, OutBoundHandlerInfo> = HashMap::new();
         #[cfg(feature = "plugin")]
         let mut external_handlers = super::plugin::ExternalHandlers::new();
         let mut default_handler: Option<String> = None;
@@ -901,12 +952,19 @@ impl OutboundManager {
         })
     }
 
-    pub fn add(&mut self, tag: String, handler: AnyOutboundHandler) {
-        self.handlers.insert(tag, handler);
+    pub fn add(
+        &mut self,
+        tag: String,
+        handler: AnyOutboundHandler,
+        protocol: String,
+        settings: Vec<u8>,
+    ) {
+        self.handlers
+            .insert(tag, OutBoundHandlerInfo::new(handler, protocol, settings));
     }
 
     pub fn get(&self, tag: &str) -> Option<AnyOutboundHandler> {
-        self.handlers.get(tag).map(Clone::clone)
+        self.handlers.get(tag).map(|x| x.handler.clone())
     }
 
     pub fn default_handler(&self) -> Option<String> {
@@ -931,11 +989,11 @@ impl OutboundManager {
 }
 
 pub struct Handlers<'a> {
-    inner: hash_map::Values<'a, String, AnyOutboundHandler>,
+    inner: hash_map::Values<'a, String, OutBoundHandlerInfo>,
 }
 
 impl<'a> Iterator for Handlers<'a> {
-    type Item = &'a AnyOutboundHandler;
+    type Item = &'a OutBoundHandlerInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
