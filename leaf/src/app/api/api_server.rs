@@ -56,6 +56,7 @@ mod handlers {
         } = opts
         {
             if rm.set_outbound_selected(&outbound, &select).await.is_ok() {
+                tracing::info!("select update: {outbound} now: {select}");
                 return Ok(StatusCode::OK);
             }
         }

@@ -727,6 +727,7 @@ impl OutboundManager {
                             if let Some(a) = handlers.get(actor) {
                                 actors.push(a.clone());
                             } else {
+                                tracing::info!("select: {tag} actor not found: {}", actor);
                                 continue 'outbounds;
                             }
                         }

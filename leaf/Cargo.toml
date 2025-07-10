@@ -114,7 +114,8 @@ outbound-amux= ["tokio-util"]
 outbound-quic = ["quinn", "rustls", "webpki-roots-old", "rustls-pemfile-old"]
 outbound-select = ["directories"]
 outbound-vmess = ["lz_fnv", "cfb-mode", "hmac", "aes", "sha3", "digest", "uuid", "md-5", "tokio-util", "byteorder"]
-outbound-private-tun = ["private_tun", "async-ringbuf", "serde_json"]
+outbound-private-tun = ["private_tun", "async-ringbuf", "serde_json", "tokio-util"]
+private_tun_smart_mode = ["private_tun/sqlite"]
 
 # Inbounds
 inbound-trojan = ["sha2", "hex"]
@@ -251,7 +252,7 @@ warp = { version = "0.3", default-features = false, optional = true }
 notify = { version = "6", optional = true }
 
 # Private TUN
-private_tun = { path = "../../private_tun", features = ["sqlite"], optional = true }
+private_tun = { path = "../../private_tun", optional = true }
 async-ringbuf = {version ="0.3", default-features=false, optional = true}
 
 # TUN

@@ -372,8 +372,8 @@ pub struct StartOptions {
 }
 
 pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
-    #[cfg(debug_assertions)]
-    println!("start with options:\n{:#?}", opts);
+    // #[cfg(debug_assertions)]
+    // println!("start with options:\n{:#?}", opts);
 
     let (reload_tx, mut reload_rx) = mpsc::channel(1);
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
