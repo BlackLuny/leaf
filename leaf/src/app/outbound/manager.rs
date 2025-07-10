@@ -4,7 +4,6 @@ use std::{
     ops::Deref,
 };
 
-#[cfg(feature = "outbound-select")]
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -62,18 +61,45 @@ use crate::{
 #[cfg(feature = "outbound-select")]
 use super::selector::OutboundSelector;
 
+#[derive(Clone)]
 pub struct OutBoundHandlerInfo {
     handler: AnyOutboundHandler,
     protocol: String,
-    settings: Vec<u8>,
+    settings: Arc<Vec<u8>>,
+    sub_handlers: Arc<Vec<String>>,
+    tag: String,
 }
+
 impl OutBoundHandlerInfo {
-    pub fn new(handler: AnyOutboundHandler, protocol: String, settings: Vec<u8>) -> Self {
+    pub fn new(
+        tag: String,
+        handler: AnyOutboundHandler,
+        protocol: String,
+        settings: Vec<u8>,
+        sub_handlers: Vec<String>,
+    ) -> Self {
         Self {
+            tag,
             handler,
             protocol,
-            settings,
+            settings: Arc::new(settings),
+            sub_handlers: Arc::new(sub_handlers),
         }
+    }
+    pub fn handler(&self) -> &AnyOutboundHandler {
+        &self.handler
+    }
+    pub fn protocol(&self) -> &str {
+        &self.protocol
+    }
+    pub fn settings(&self) -> &Vec<u8> {
+        &self.settings
+    }
+    pub fn tag(&self) -> &str {
+        &self.tag
+    }
+    pub fn sub_handlers(&self) -> &Vec<String> {
+        &self.sub_handlers
     }
 }
 
@@ -133,9 +159,11 @@ impl OutboundManager {
                     handlers.insert(
                         tag.clone(),
                         OutBoundHandlerInfo::new(
+                            tag.clone(),
                             e.handler.clone(),
                             e.protocol.to_owned(),
                             e.settings.clone(),
+                            vec![],
                         ),
                     );
                     continue 'loop1;
@@ -355,6 +383,83 @@ impl OutboundManager {
                         .stream_handler(stream)
                         .build()
                 }
+                #[cfg(feature = "outbound-private-tun")]
+                "private-tun" => {
+                    use std::{net::IpAddr, sync::Arc};
+
+                    use ::private_tun::snell_impl_ver::{
+                        client_zfc::run_client_with_config_and_name,
+                        udp_intf::create_ringbuf_channel,
+                    };
+
+                    let settings =
+                        config::PrivateTunOutboundSettings::parse_from_bytes(&outbound.settings)
+                            .map_err(|e| anyhow!("invalid [{}] outbound settings: {}", &tag, e))?;
+
+                    // 解析存储的ClientConfig JSON
+                    let client_config: ::private_tun::snell_impl_ver::config::ClientConfig =
+                        serde_json::from_str(&settings.client_config_json)
+                            .map_err(|e| anyhow!("invalid private-tun client config: {}", e))?;
+
+                    let cancel_token = tokio_util::sync::CancellationToken::new();
+                    let cancel_token_clone = cancel_token.clone();
+                    let (inbound_tx, inbound_rx) = create_ringbuf_channel(13);
+                    let config_name = tag.clone();
+                    struct DnsClientWrapper(SyncDnsClient);
+                    #[async_trait::async_trait]
+                    impl ::private_tun::dns_cache::DnsResolver for DnsClientWrapper {
+                        async fn resolve_dns(&self, host: &str, port: u16) -> Result<Vec<IpAddr>> {
+                            self.0.read().await.direct_lookup(&host.to_string()).await
+                        }
+                    }
+                    let dns_resolver = Arc::new(DnsClientWrapper(dns_client.clone()))
+                        as Arc<dyn ::private_tun::dns_cache::DnsResolver>;
+                    let notifier = Arc::new(tokio::sync::Notify::new());
+                    let notifier_clone = notifier.clone();
+                    tokio::spawn(async move {
+                        use ::private_tun::snell_impl_ver::client_run::init_ring_provider;
+                        use socket2::Socket;
+                        let _ = init_ring_provider();
+                        notifier_clone.notified().await;
+                        let _h = run_client_with_config_and_name(
+                            client_config,
+                            inbound_rx,
+                            &config_name,
+                            Some(cancel_token),
+                            true,
+                            Some(Arc::new(Box::new(move |socket: &Socket, target_addr| {
+                                let r = bind_socket(socket, target_addr);
+                                debug!("hammer bind socket to {}: {:?}", target_addr, r);
+                            }))),
+                            Some(dns_resolver),
+                        )
+                        .await;
+                    });
+                    let client = Arc::new(private_tun::outbound::Client::new(
+                        tokio::sync::Mutex::new(inbound_tx),
+                        cancel_token_clone,
+                        notifier,
+                    ));
+
+                    // Create stream handler
+                    let stream = Box::new(private_tun::outbound::Handler {
+                        tag: tag.clone(),
+                        color: colored::Color::Yellow, // 默认颜色
+                        client: client.clone(),
+                    });
+
+                    let datagram = Box::new(private_tun::outbound::DatagramHandler {
+                        tag: tag.clone(),
+                        color: colored::Color::Yellow, // 默认颜色
+                        bind_addr: "127.0.0.1:0".parse().unwrap(), // 默认绑定地址
+                        client: client.clone(),
+                    });
+                    HandlerBuilder::default()
+                        .tag(tag.clone())
+                        .stream_handler(stream)
+                        .datagram_handler(datagram)
+                        .build()
+                }
                 _ => continue,
             };
             cached_handlers.push(HandlerCacheEntry {
@@ -365,11 +470,13 @@ impl OutboundManager {
             });
             trace!("add handler [{}]", &tag);
             handlers.insert(
-                tag,
+                tag.clone(),
                 OutBoundHandlerInfo::new(
+                    tag.clone(),
                     h.clone(),
                     outbound.protocol.clone(),
                     outbound.settings.clone(),
+                    vec![],
                 ),
             );
         }
@@ -403,12 +510,12 @@ impl OutboundManager {
                             continue;
                         }
                         let stream = Box::new(tryall::StreamHandler {
-                            actors: actors.clone(),
+                            actors: actors.iter().map(|x| x.handler().clone()).collect(),
                             delay_base: settings.delay_base,
                             dns_client: dns_client.clone(),
                         });
                         let datagram = Box::new(tryall::DatagramHandler {
-                            actors,
+                            actors: actors.iter().map(|x| x.handler().clone()).collect(),
                             delay_base: settings.delay_base,
                             dns_client: dns_client.clone(),
                         });
@@ -417,7 +524,16 @@ impl OutboundManager {
                             .stream_handler(stream)
                             .datagram_handler(datagram)
                             .build();
-                        handlers.insert(tag.clone(), handler);
+                        handlers.insert(
+                            tag.clone(),
+                            OutBoundHandlerInfo::new(
+                                tag.clone(),
+                                handler,
+                                "tryall".to_string(),
+                                outbound.settings.clone(),
+                                actors.iter().map(|x| x.tag().to_string()).collect(),
+                            ),
+                        );
                         trace!(
                             "added handler [{}] with actors: {}",
                             &tag,
@@ -443,7 +559,7 @@ impl OutboundManager {
                             continue;
                         }
                         let stream = Box::new(r#static::StreamHandler::new(
-                            actors.clone(),
+                            actors.iter().map(|x| x.handler().clone()).collect(),
                             &settings.method,
                         )?);
                         let datagram =
@@ -453,7 +569,16 @@ impl OutboundManager {
                             .stream_handler(stream)
                             .datagram_handler(datagram)
                             .build();
-                        handlers.insert(tag.clone(), handler);
+                        handlers.insert(
+                            tag.clone(),
+                            OutBoundHandlerInfo::new(
+                                tag.clone(),
+                                handler,
+                                "static".to_string(),
+                                outbound.settings.clone(),
+                                actors.iter().map(|x| x.tag().to_string()).collect(),
+                            ),
+                        );
                         trace!(
                             "added handler [{}] with actors: {}",
                             &tag,
@@ -485,7 +610,7 @@ impl OutboundManager {
                                 None
                             };
                         let (stream, mut stream_abort_handles) = failover::StreamHandler::new(
-                            actors.clone(),
+                            actors.iter().map(|x| x.handler().clone()).collect(),
                             settings.fail_timeout,
                             settings.health_check,
                             settings.check_interval,
@@ -505,7 +630,7 @@ impl OutboundManager {
                             dns_client.clone(),
                         );
                         let (datagram, mut datagram_abort_handles) = failover::DatagramHandler::new(
-                            actors,
+                            actors.iter().map(|x| x.handler().clone()).collect(),
                             settings.fail_timeout,
                             settings.health_check,
                             settings.check_interval,
@@ -526,7 +651,16 @@ impl OutboundManager {
                             .stream_handler(Box::new(stream))
                             .datagram_handler(Box::new(datagram))
                             .build();
-                        handlers.insert(tag.clone(), handler);
+                        handlers.insert(
+                            tag.clone(),
+                            OutBoundHandlerInfo::new(
+                                tag.clone(),
+                                handler,
+                                "failover".to_string(),
+                                outbound.settings.clone(),
+                                actors.iter().map(|x| x.tag().to_string()).collect(),
+                            ),
+                        );
                         abort_handles.append(&mut stream_abort_handles);
                         abort_handles.append(&mut datagram_abort_handles);
                         trace!(
@@ -553,7 +687,7 @@ impl OutboundManager {
                         let (stream, mut stream_abort_handles) = amux::outbound::StreamHandler::new(
                             settings.address.clone(),
                             settings.port as u16,
-                            actors.clone(),
+                            actors.iter().map(|x| x.handler().clone()).collect(),
                             settings.max_accepts as usize,
                             settings.concurrency as usize,
                             settings.max_recv_bytes as usize,
@@ -564,7 +698,16 @@ impl OutboundManager {
                             .tag(tag.clone())
                             .stream_handler(Box::new(stream))
                             .build();
-                        handlers.insert(tag.clone(), handler);
+                        handlers.insert(
+                            tag.clone(),
+                            OutBoundHandlerInfo::new(
+                                tag.clone(),
+                                handler,
+                                "amux".to_string(),
+                                outbound.settings.clone(),
+                                actors.iter().map(|x| x.tag().to_string()).collect(),
+                            ),
+                        );
                         abort_handles.append(&mut stream_abort_handles);
                         trace!(
                             "added handler [{}] with actors: {}",
@@ -591,100 +734,11 @@ impl OutboundManager {
                             continue;
                         }
                         let stream = Box::new(chain::outbound::StreamHandler {
-                            actors: actors.clone(),
+                            actors: actors.iter().map(|x| x.handler().clone()).collect(),
                         });
                         let datagram = Box::new(chain::outbound::DatagramHandler {
-                            actors: actors.clone(),
+                            actors: actors.iter().map(|x| x.handler().clone()).collect(),
                         });
-                        let handler = HandlerBuilder::default()
-                            .tag(tag.clone())
-                            .stream_handler(stream)
-                            .datagram_handler(datagram)
-                            .build();
-                        handlers.insert(tag.clone(), handler);
-                        trace!(
-                            "added handler [{}] with actors: {}",
-                            &tag,
-                            settings.actors.join(",")
-                        );
-                    }
-                    #[cfg(feature = "outbound-private-tun")]
-                    "private-tun" => {
-                        use std::{net::IpAddr, sync::Arc};
-
-                        use ::private_tun::snell_impl_ver::{
-                            client_zfc::run_client_with_config_and_name,
-                            udp_intf::create_ringbuf_channel,
-                        };
-
-                        let settings = config::PrivateTunOutboundSettings::parse_from_bytes(
-                            &outbound.settings,
-                        )
-                        .map_err(|e| anyhow!("invalid [{}] outbound settings: {}", &tag, e))?;
-
-                        // 解析存储的ClientConfig JSON
-                        let client_config: ::private_tun::snell_impl_ver::config::ClientConfig =
-                            serde_json::from_str(&settings.client_config_json)
-                                .map_err(|e| anyhow!("invalid private-tun client config: {}", e))?;
-
-                        let cancel_token = tokio_util::sync::CancellationToken::new();
-                        let cancel_token_clone = cancel_token.clone();
-                        let (inbound_tx, inbound_rx) = create_ringbuf_channel(13);
-                        let config_name = tag.clone();
-                        struct DnsClientWrapper(SyncDnsClient);
-                        #[async_trait::async_trait]
-                        impl ::private_tun::dns_cache::DnsResolver for DnsClientWrapper {
-                            async fn resolve_dns(
-                                &self,
-                                host: &str,
-                                port: u16,
-                            ) -> Result<Vec<IpAddr>> {
-                                self.0.read().await.direct_lookup(&host.to_string()).await
-                            }
-                        }
-                        let dns_resolver = Arc::new(DnsClientWrapper(dns_client.clone()))
-                            as Arc<dyn ::private_tun::dns_cache::DnsResolver>;
-                        let notifier = Arc::new(tokio::sync::Notify::new());
-                        let notifier_clone = notifier.clone();
-                        tokio::spawn(async move {
-                            use ::private_tun::snell_impl_ver::client_run::init_ring_provider;
-                            use socket2::Socket;
-                            let _ = init_ring_provider();
-                            notifier_clone.notified().await;
-                            let _h = run_client_with_config_and_name(
-                                client_config,
-                                inbound_rx,
-                                &config_name,
-                                Some(cancel_token),
-                                true,
-                                Some(Arc::new(Box::new(move |socket: &Socket, target_addr| {
-                                    let r = bind_socket(socket, target_addr);
-                                    debug!("hammer bind socket to {}: {:?}", target_addr, r);
-                                }))),
-                                Some(dns_resolver),
-                            )
-                            .await;
-                        });
-                        let client = Arc::new(private_tun::outbound::Client::new(
-                            tokio::sync::Mutex::new(inbound_tx),
-                            cancel_token_clone,
-                            notifier,
-                        ));
-
-                        // Create stream handler
-                        let stream = Box::new(private_tun::outbound::Handler {
-                            tag: tag.clone(),
-                            color: colored::Color::Yellow, // 默认颜色
-                            client: client.clone(),
-                        });
-
-                        let datagram = Box::new(private_tun::outbound::DatagramHandler {
-                            tag: tag.clone(),
-                            color: colored::Color::Yellow, // 默认颜色
-                            bind_addr: "127.0.0.1:0".parse().unwrap(), // 默认绑定地址
-                            client: client.clone(),
-                        });
-
                         let handler = HandlerBuilder::default()
                             .tag(tag.clone())
                             .stream_handler(stream)
@@ -693,12 +747,18 @@ impl OutboundManager {
                         handlers.insert(
                             tag.clone(),
                             OutBoundHandlerInfo::new(
+                                tag.clone(),
                                 handler,
-                                "hammer".to_string(),
+                                "chain".to_string(),
                                 outbound.settings.clone(),
+                                actors.iter().map(|x| x.tag().to_string()).collect(),
                             ),
                         );
-                        trace!("added handler [{}]", &tag);
+                        trace!(
+                            "added handler [{}] with actors: {}",
+                            &tag,
+                            settings.actors.join(",")
+                        );
                     }
                     #[cfg(feature = "plugin")]
                     "plugin" => {
@@ -724,7 +784,16 @@ impl OutboundManager {
                             .stream_handler(stream)
                             .datagram_handler(datagram)
                             .build();
-                        handlers.insert(tag.clone(), handler);
+                        handlers.insert(
+                            tag.clone(),
+                            OutBoundHandlerInfo::new(
+                                tag.clone(),
+                                handler,
+                                "plugin".to_string(),
+                                outbound.settings.clone(),
+                                vec![],
+                            ),
+                        );
                         trace!("added handler [{}]", &tag,);
                     }
                     _ => continue,
@@ -814,9 +883,11 @@ impl OutboundManager {
                         handlers.insert(
                             tag.clone(),
                             OutBoundHandlerInfo::new(
+                                tag.clone(),
                                 handler,
                                 "select".to_string(),
                                 outbound.settings.clone(),
+                                actors.iter().map(|x| x.tag().to_string()).collect(),
                             ),
                         );
                         trace!(
@@ -958,13 +1029,20 @@ impl OutboundManager {
         handler: AnyOutboundHandler,
         protocol: String,
         settings: Vec<u8>,
+        sub_handlers: Vec<String>,
     ) {
-        self.handlers
-            .insert(tag, OutBoundHandlerInfo::new(handler, protocol, settings));
+        self.handlers.insert(
+            tag.clone(),
+            OutBoundHandlerInfo::new(tag.clone(), handler, protocol, settings, sub_handlers),
+        );
     }
 
     pub fn get(&self, tag: &str) -> Option<AnyOutboundHandler> {
         self.handlers.get(tag).map(|x| x.handler.clone())
+    }
+
+    pub fn get_outbound_info(&self, tag: &str) -> Option<OutBoundHandlerInfo> {
+        self.handlers.get(tag).map(|x| x.clone())
     }
 
     pub fn default_handler(&self) -> Option<String> {

@@ -22,6 +22,9 @@ use app::{
     nat_manager::NatManager, outbound::manager::OutboundManager, router::Router,
 };
 
+
+use crate::app::outbound::manager::OutBoundHandlerInfo;
+
 #[cfg(feature = "stat")]
 use crate::app::{stat_manager::StatManager, SyncStatManager};
 
@@ -162,6 +165,24 @@ impl RuntimeManager {
         for tag in all_selectable {
             let selects = self.get_outbound_selects(&tag).await?;
             result.push((tag, selects));
+        }
+        Ok(result)
+    }
+
+    pub async fn get_outbound_info(&self, tag: &str) -> Result<OutBoundHandlerInfo, Error> {
+        if let Some(info) = self.outbound_manager.read().await.get_outbound_info(tag) {
+            Ok(info)
+        } else {
+            Err(Error::Config(anyhow!("not found")))
+        }
+    }
+
+    pub async fn get_all_outbound_info(&self) -> Result<Vec<OutBoundHandlerInfo>, Error> {
+        let lock = self.outbound_manager.read().await;
+        let all_outbounds = lock.handlers();
+        let mut result = Vec::new();
+        for info in all_outbounds {
+            result.push(info.clone());
         }
         Ok(result)
     }

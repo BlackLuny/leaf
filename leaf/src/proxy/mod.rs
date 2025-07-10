@@ -596,6 +596,9 @@ pub type AnyStream = Box<dyn ProxyStream>;
 pub trait OutboundHandler: Tag + Color + Sync + Send + Unpin {
     fn stream(&self) -> io::Result<&AnyOutboundStreamHandler>;
     fn datagram(&self) -> io::Result<&AnyOutboundDatagramHandler>;
+    fn sub_handlers(&self) -> io::Result<Vec<String>> {
+        Ok(vec![])
+    }
 }
 
 pub type AnyOutboundHandler = Arc<dyn OutboundHandler>;
