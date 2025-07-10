@@ -169,6 +169,15 @@ impl RuntimeManager {
         Ok(result)
     }
 
+    pub async fn set_global_target(&self, target: Option<String>) {
+        self.router.write().await.set_global_target(target);
+    }
+
+    pub async fn get_global_target(&self) -> Result<Option<String>, Error> {
+        let target = self.router.read().await.get_global_target();
+        Ok(target)
+    }
+
     pub async fn get_outbound_info(&self, tag: &str) -> Result<OutBoundHandlerInfo, Error> {
         if let Some(info) = self.outbound_manager.read().await.get_outbound_info(tag) {
             Ok(info)

@@ -19,6 +19,11 @@ mod models {
         pub select: Option<String>,
     }
 
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct GlobalTarget {
+        pub target: Option<String>,
+    }
+
     #[cfg(feature = "outbound-select")]
     #[derive(Debug, Serialize, Deserialize)]
     pub struct SelectReply {
@@ -143,6 +148,31 @@ mod handlers {
         }
 
         Ok(warp::reply::json(&models::AllOutbounds { outbounds: None }))
+    }
+
+    pub async fn set_global_target(
+        opts: models::GlobalTarget,
+        rm: Arc<RuntimeManager>,
+    ) -> Result<impl warp::Reply, Infallible> {
+        if let models::GlobalTarget {
+            target: Some(target),
+        } = opts
+        {
+            rm.set_global_target(Some(target)).await;
+        } else {
+            rm.set_global_target(None).await;
+        }
+        Ok(StatusCode::OK)
+    }
+
+    pub async fn get_global_target(
+        rm: Arc<RuntimeManager>,
+    ) -> Result<impl warp::Reply, Infallible> {
+        if let Ok(target) = rm.get_global_target().await {
+            Ok(warp::reply::json(&models::GlobalTarget { target }))
+        } else {
+            Ok(warp::reply::json(&models::GlobalTarget { target: None }))
+        }
     }
 
     pub async fn runtime_reload(rm: Arc<RuntimeManager>) -> Result<impl warp::Reply, Infallible> {
@@ -315,6 +345,27 @@ mod filters {
             .and_then(handlers::all_outbounds)
     }
 
+    // POST /api/v1/app/outbound/global_target
+    pub fn set_global_target(
+        rm: Arc<RuntimeManager>,
+    ) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+        warp::path!("api" / "v1" / "app" / "outbound" / "global_target")
+            .and(warp::post())
+            .and(warp::query::<models::GlobalTarget>())
+            .and(with_runtime_manager(rm))
+            .and_then(handlers::set_global_target)
+    }
+
+    // GET /api/v1/app/outbound/global_target
+    pub fn get_global_target(
+        rm: Arc<RuntimeManager>,
+    ) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+        warp::path!("api" / "v1" / "app" / "outbound" / "global_target")
+            .and(warp::get())
+            .and(with_runtime_manager(rm))
+            .and_then(handlers::get_global_target)
+    }
+
     // POST /api/v1/runtime/reload
     pub fn runtime_reload(
         rm: Arc<RuntimeManager>,
@@ -372,6 +423,10 @@ impl ApiServer {
             .or(filters::runtime_shutdown(self.runtime_manager.clone()));
 
         let routes = routes.or(filters::all_outbounds(self.runtime_manager.clone()));
+
+        let routes = routes
+            .or(filters::set_global_target(self.runtime_manager.clone()))
+            .or(filters::get_global_target(self.runtime_manager.clone()));
 
         #[cfg(feature = "outbound-select")]
         let routes = routes

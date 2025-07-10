@@ -414,6 +414,7 @@ impl Condition for ConditionOr {
 }
 
 pub struct Router {
+    global_target: Option<String>,
     rules: Vec<Rule>,
     domain_resolve: bool,
     dns_client: SyncDnsClient,
@@ -501,6 +502,7 @@ impl Router {
             rules,
             domain_resolve,
             dns_client,
+            global_target: None,
         }
     }
 
@@ -513,7 +515,27 @@ impl Router {
         Ok(())
     }
 
+    pub fn set_global_target(&mut self, target: Option<String>) {
+        if let Some(target) = target {
+            if target.is_empty() {
+                self.global_target = None;
+            } else {
+                self.global_target = Some(target);
+            }
+        } else {
+            self.global_target = None;
+        }
+    }
+
+    pub fn get_global_target(&self) -> Option<String> {
+        self.global_target.clone()
+    }
+
     pub async fn pick_route<'a>(&'a self, sess: &'a Session) -> Result<&'a String> {
+        if let Some(target) = &self.global_target {
+            return Ok(target);
+        }
+
         debug!("picking route for {}:{}", &sess.network, &sess.destination);
         for rule in &self.rules {
             if rule.apply(sess) {
