@@ -81,13 +81,13 @@ impl NatManager {
                 }
                 drop(to_be_remove); // drop explicitly
                 let n_remaining = sessions2.len();
-                let n_removed = n_total - n_remaining;
-                if n_removed > 0 {
-                    debug!(
-                        "removed {} nat sessions, remaining {} sessions",
-                        n_removed, n_remaining
-                    );
-                }
+                // let n_removed = n_total - n_remaining;
+                // if n_removed > 0 {
+                //     debug!(
+                //         "removed {} nat sessions, remaining {} sessions",
+                //         n_removed, n_remaining
+                //     );
+                // }
                 tokio::time::sleep(Duration::from_secs(
                     *option::UDP_SESSION_TIMEOUT_CHECK_INTERVAL,
                 ))

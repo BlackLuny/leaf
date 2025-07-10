@@ -29,6 +29,15 @@ windows = [
   "leaf/ctrlc",
 ]
 
+macos = [
+  "leaf/inbound-tun",
+  "leaf/outbound-private-tun",
+  "leaf/outbound-shadowsocks",
+  "leaf/config-json",
+  "leaf/ring-aead",
+  "leaf/ctrlc",
+]
+
 [dependencies]
 leaf = { path = "../leaf", default-features = false, optional = true }
 tokio = { version = "1", features = ["rt"] }

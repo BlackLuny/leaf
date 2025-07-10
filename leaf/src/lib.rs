@@ -155,6 +155,17 @@ impl RuntimeManager {
         Err(Error::Config(anyhow!("not found")))
     }
 
+    #[cfg(feature = "outbound-select")]
+    pub async fn get_all_outbound_selects(&self) -> Result<Vec<(String, Vec<String>)>, Error> {
+        let all_selectable = self.outbound_manager.read().await.get_selectable_outbounds();
+        let mut result = Vec::new();
+        for tag in all_selectable {
+            let selects = self.get_outbound_selects(&tag).await?;
+            result.push((tag, selects));
+        }
+        Ok(result)
+    }
+
     // This function could block by an in-progress connection dialing.
     //
     // TODO Reload FakeDns. And perhaps the inbounds as long as the listening
@@ -374,7 +385,6 @@ pub struct StartOptions {
 pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     // #[cfg(debug_assertions)]
     // println!("start with options:\n{:#?}", opts);
-
     let (reload_tx, mut reload_rx) = mpsc::channel(1);
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
 

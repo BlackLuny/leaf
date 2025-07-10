@@ -923,6 +923,11 @@ impl OutboundManager {
     pub fn get_selector(&self, tag: &str) -> Option<Arc<RwLock<OutboundSelector>>> {
         self.selectors.get(tag).map(Clone::clone)
     }
+
+    #[cfg(feature = "outbound-select")]
+    pub fn get_selectable_outbounds(&self) -> Vec<(String)> {
+        self.selectors.keys().map(|x| x.to_owned()).collect()
+    }
 }
 
 pub struct Handlers<'a> {

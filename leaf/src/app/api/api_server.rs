@@ -25,6 +25,12 @@ mod models {
         pub selected: Option<String>,
     }
 
+    #[cfg(feature = "outbound-select")]
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct AllSelectsOutbound {
+        pub selects: Option<Vec<(String, Vec<String>)>>,
+    }
+
     #[cfg(feature = "stat")]
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Stat {
@@ -95,8 +101,29 @@ mod handlers {
             if let Ok(selects) = rm.get_outbound_selects(&outbound).await {
                 return Ok(warp::reply::json(&selects));
             }
+        } else {
+            // get all outbound selectors
+            if let Ok(selectors) = rm.get_all_outbound_selects().await {
+                return Ok(warp::reply::json(&selectors));
+            }
         }
         Ok(warp::reply::json(&models::SelectReply { selected: None }))
+    }
+
+    #[cfg(feature = "outbound-select")]
+    pub async fn all_selects_outbound(
+        rm: Arc<RuntimeManager>,
+    ) -> Result<impl warp::Reply, Infallible> {
+        // get all outbound selectors
+        if let Ok(selectors) = rm.get_all_outbound_selects().await {
+            return Ok(warp::reply::json(&models::AllSelectsOutbound {
+                selects: Some(selectors),
+            }));
+        }
+
+        Ok(warp::reply::json(&models::AllSelectsOutbound {
+            selects: None,
+        }))
     }
 
     pub async fn runtime_reload(rm: Arc<RuntimeManager>) -> Result<impl warp::Reply, Infallible> {
@@ -248,6 +275,16 @@ mod filters {
             .and_then(handlers::select_list)
     }
 
+    #[cfg(feature = "outbound-select")]
+    pub fn all_selects_outbound(
+        rm: Arc<RuntimeManager>,
+    ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+        warp::path!("api" / "v1" / "app" / "outbound" / "all_selects")
+            .and(warp::get())
+            .and(with_runtime_manager(rm))
+            .and_then(handlers::all_selects_outbound)
+    }
+
     // POST /api/v1/runtime/reload
     pub fn runtime_reload(
         rm: Arc<RuntimeManager>,
@@ -308,7 +345,8 @@ impl ApiServer {
         let routes = routes
             .or(filters::select_update(self.runtime_manager.clone()))
             .or(filters::select_get(self.runtime_manager.clone()))
-            .or(filters::select_list(self.runtime_manager.clone()));
+            .or(filters::select_list(self.runtime_manager.clone()))
+            .or(filters::all_selects_outbound(self.runtime_manager.clone()));
 
         #[cfg(feature = "stat")]
         let routes = routes
