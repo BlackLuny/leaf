@@ -25,10 +25,9 @@ mod models {
         pub selected: Option<String>,
     }
 
-    #[cfg(feature = "outbound-select")]
     #[derive(Debug, Serialize, Deserialize)]
-    pub struct AllSelectsOutbound {
-        pub selects: Option<Vec<(String, Vec<String>)>>,
+    pub struct AllOutbounds {
+        pub outbounds: Option<Vec<OutboundInfo>>,
     }
 
     #[cfg(feature = "stat")]
@@ -63,6 +62,8 @@ mod models {
 }
 
 mod handlers {
+    use crate::app::outbound::manager::OutBoundHandlerInfo;
+
     use super::*;
     use warp::http::StatusCode;
 
@@ -116,29 +117,32 @@ mod handlers {
             if let Ok(selects) = rm.get_outbound_selects(&outbound).await {
                 return Ok(warp::reply::json(&selects));
             }
-        } else {
-            // get all outbound selectors
-            if let Ok(selectors) = rm.get_all_outbound_selects().await {
-                return Ok(warp::reply::json(&selectors));
-            }
         }
         Ok(warp::reply::json(&models::SelectReply { selected: None }))
     }
 
-    #[cfg(feature = "outbound-select")]
-    pub async fn all_selects_outbound(
-        rm: Arc<RuntimeManager>,
-    ) -> Result<impl warp::Reply, Infallible> {
+    pub async fn all_outbounds(rm: Arc<RuntimeManager>) -> Result<impl warp::Reply, Infallible> {
         // get all outbound selectors
-        if let Ok(selectors) = rm.get_all_outbound_selects().await {
-            return Ok(warp::reply::json(&models::AllSelectsOutbound {
-                selects: Some(selectors),
+        if let Ok(outbounds) = rm.get_all_outbound_info().await {
+            return Ok(warp::reply::json(&models::AllOutbounds {
+                outbounds: Some(
+                    outbounds
+                        .into_iter()
+                        .map(|x: OutBoundHandlerInfo| models::OutboundInfo {
+                            tag: x.tag().to_owned(),
+                            protocol: x.protocol().to_string(),
+                            sub_outbounds_tag: if x.sub_handlers().is_empty() {
+                                None
+                            } else {
+                                Some(x.sub_handlers().clone())
+                            },
+                        })
+                        .collect(),
+                ),
             }));
         }
 
-        Ok(warp::reply::json(&models::AllSelectsOutbound {
-            selects: None,
-        }))
+        Ok(warp::reply::json(&models::AllOutbounds { outbounds: None }))
     }
 
     pub async fn runtime_reload(rm: Arc<RuntimeManager>) -> Result<impl warp::Reply, Infallible> {
@@ -290,15 +294,25 @@ mod filters {
             .and_then(handlers::select_list)
     }
 
-    /// get all outbounds which can be selected
-    #[cfg(feature = "outbound-select")]
-    pub fn all_selects_outbound(
+    // // GET /api/v1/app/outbound/all_selects
+    // #[cfg(feature = "outbound-select")]
+    // pub fn all_selects_outbound(
+    //     rm: Arc<RuntimeManager>,
+    // ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    //     warp::path!("api" / "v1" / "app" / "outbound" / "all_selects")
+    //         .and(warp::get())
+    //         .and(with_runtime_manager(rm))
+    //         .and_then(handlers::all_selects_outbound)
+    // }
+
+    // GET /api/v1/app/outbound/all_outbounds
+    pub fn all_outbounds(
         rm: Arc<RuntimeManager>,
-    ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-        warp::path!("api" / "v1" / "app" / "outbound" / "all_selects")
+    ) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+        warp::path!("api" / "v1" / "app" / "outbound" / "all_outbounds")
             .and(warp::get())
             .and(with_runtime_manager(rm))
-            .and_then(handlers::all_selects_outbound)
+            .and_then(handlers::all_outbounds)
     }
 
     // POST /api/v1/runtime/reload
@@ -357,12 +371,13 @@ impl ApiServer {
         let routes = filters::runtime_reload(self.runtime_manager.clone())
             .or(filters::runtime_shutdown(self.runtime_manager.clone()));
 
+        let routes = routes.or(filters::all_outbounds(self.runtime_manager.clone()));
+
         #[cfg(feature = "outbound-select")]
         let routes = routes
             .or(filters::select_update(self.runtime_manager.clone()))
             .or(filters::select_get(self.runtime_manager.clone()))
-            .or(filters::select_list(self.runtime_manager.clone()))
-            .or(filters::all_selects_outbound(self.runtime_manager.clone()));
+            .or(filters::select_list(self.runtime_manager.clone()));
 
         #[cfg(feature = "stat")]
         let routes = routes

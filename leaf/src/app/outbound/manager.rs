@@ -605,7 +605,7 @@ impl OutboundManager {
                         }
                         let last_resort =
                             if let Some(last_resort_tag) = settings.last_resort.as_ref() {
-                                handlers.get(last_resort_tag).cloned()
+                                handlers.get(last_resort_tag).map(|x| x.handler().clone())
                             } else {
                                 None
                             };
@@ -868,7 +868,10 @@ impl OutboundManager {
                             actors: actors.clone(),
                             selected: selected.clone(),
                         });
-                        let datagram = Box::new(select::DatagramHandler { actors, selected });
+                        let datagram = Box::new(select::DatagramHandler {
+                            actors: actors.clone(),
+                            selected: selected.clone(),
+                        });
 
                         #[cfg(feature = "outbound-select")]
                         {
