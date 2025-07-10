@@ -209,6 +209,9 @@ impl TcpListener {
         stream.set_linger(Some(Duration::ZERO))?;
         Ok((stream, addr))
     }
+    pub fn inner(&self) -> &tokio::net::TcpListener {
+        &self.inner
+    }
 }
 
 pub fn bind_socket<T: BindSocket>(socket: &T, indicator: &SocketAddr) -> io::Result<()> {

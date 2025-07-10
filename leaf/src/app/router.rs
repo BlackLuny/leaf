@@ -516,6 +516,7 @@ impl Router {
     }
 
     pub fn set_global_target(&mut self, target: Option<String>) {
+        tracing::info!("set global to: {:?}", target);
         if let Some(target) = target {
             if target.is_empty() {
                 self.global_target = None;

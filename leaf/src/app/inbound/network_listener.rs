@@ -168,6 +168,11 @@ async fn handle_tcp_listen(
     nat_manager: Arc<NatManager>,
 ) -> io::Result<()> {
     let listener = crate::proxy::TcpListener::bind(&listen_addr).await?;
+    #[cfg(unix)]
+    {
+        let s = socket2::SockRef::from(listener.inner());
+        let  _ = s.set_reuse_port(true);
+    }
     info!("listening tcp {}", &listen_addr);
     loop {
         let (stream, _) = listener.accept().await?;

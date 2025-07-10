@@ -22,7 +22,6 @@ use app::{
     nat_manager::NatManager, outbound::manager::OutboundManager, router::Router,
 };
 
-
 use crate::app::outbound::manager::OutBoundHandlerInfo;
 
 #[cfg(feature = "stat")]
@@ -160,7 +159,11 @@ impl RuntimeManager {
 
     #[cfg(feature = "outbound-select")]
     pub async fn get_all_outbound_selects(&self) -> Result<Vec<(String, Vec<String>)>, Error> {
-        let all_selectable = self.outbound_manager.read().await.get_selectable_outbounds();
+        let all_selectable = self
+            .outbound_manager
+            .read()
+            .await
+            .get_selectable_outbounds();
         let mut result = Vec::new();
         for tag in all_selectable {
             let selects = self.get_outbound_selects(&tag).await?;
@@ -356,6 +359,10 @@ pub fn is_running(key: RuntimeId) -> bool {
     RUNTIME_MANAGER.lock().unwrap().contains_key(&key)
 }
 
+pub fn get_runtime_manager(key: RuntimeId) -> Option<Arc<RuntimeManager>> {
+    RUNTIME_MANAGER.lock().unwrap().get(&key).cloned()
+}
+
 pub fn test_config(config_path: &str) -> Result<(), Error> {
     config::from_file(config_path)
         .map(|_| ())
@@ -412,7 +419,11 @@ pub struct StartOptions {
     pub runtime_opt: RuntimeOption,
 }
 
-pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
+pub fn start(
+    rt_id: RuntimeId,
+    opts: StartOptions,
+    mut started_notify: Option<tokio::sync::oneshot::Sender<anyhow::Result<()>>>,
+) -> Result<(), Error> {
     // #[cfg(debug_assertions)]
     // println!("start with options:\n{:#?}", opts);
     let (reload_tx, mut reload_rx) = mpsc::channel(1);
@@ -638,7 +649,9 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
     // #[cfg(not(target_os = "windows"))]
     // {
     trace!("added runtime {}", &rt_id);
-
+    if let Some(started_notify) = started_notify {
+        let _ = started_notify.send(Ok(()));
+    }
     rt.block_on(futures::future::select_all(tasks));
 
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
@@ -685,7 +698,7 @@ Direct = direct
                     auto_reload: false,
                     runtime_opt: RuntimeOption::SingleThread,
                 };
-                start(0, opts).unwrap();
+                start(0, opts, None).unwrap();
             });
             thread::sleep(std::time::Duration::from_secs(2));
             assert!(shutdown(0));

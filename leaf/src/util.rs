@@ -65,7 +65,7 @@ pub fn run_with_options(
         threads,
         stack_size,
     );
-    crate::start(rt_id, opts)
+    crate::start(rt_id, opts, None)
 }
 
 async fn test_tcp_outbound(
