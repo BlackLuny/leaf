@@ -388,7 +388,7 @@ pub fn start(rt_id: RuntimeId, opts: StartOptions) -> Result<(), Error> {
         Config::Str(s) => config::from_string(&s).map_err(Error::Config)?,
         Config::Internal(c) => c,
     };
-
+    #[cfg(not(feature = "no-tracing"))]
     app::logger::setup_logger(&config.log)?;
 
     let rt = new_runtime(&opts.runtime_opt)?;
