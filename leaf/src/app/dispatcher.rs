@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use async_recursion::async_recursion;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::select;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -60,6 +63,14 @@ pub struct Dispatcher {
     dns_client: SyncDnsClient,
     #[cfg(feature = "stat")]
     stat_manager: SyncStatManager,
+    all_session_cancel_tokens: Arc<RwLock<Vec<CancellationToken>>>,
+    handle_session_cancel_task: JoinHandle<()>,
+}
+
+impl Drop for Dispatcher {
+    fn drop(&mut self) {
+        self.handle_session_cancel_task.abort();
+    }
 }
 
 impl Dispatcher {
@@ -69,12 +80,24 @@ impl Dispatcher {
         dns_client: SyncDnsClient,
         #[cfg(feature = "stat")] stat_manager: SyncStatManager,
     ) -> Self {
+        let all_session_cancel_tokens: Arc<RwLock<Vec<CancellationToken>>> =
+            Arc::new(RwLock::new(Vec::new()));
+        let all_session_cancel_tokens_clone = all_session_cancel_tokens.clone();
+        let handle_session_cancel_task = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                let mut cancel_tokens = all_session_cancel_tokens_clone.write().await;
+                cancel_tokens.retain(|token| !token.is_cancelled());
+            }
+        });
         Dispatcher {
             outbound_manager,
             router,
             dns_client,
             #[cfg(feature = "stat")]
             stat_manager,
+            all_session_cancel_tokens,
+            handle_session_cancel_task,
         }
     }
 
@@ -207,34 +230,44 @@ impl Dispatcher {
                         .await
                         .stat_stream(rhs, sess.clone());
                 }
-
-                match common::io::copy_buf_bidirectional_with_timeout(
-                    &mut lhs,
-                    &mut rhs,
-                    *option::LINK_BUFFER_SIZE * 1024,
-                    Duration::from_secs(*option::TCP_UPLINK_TIMEOUT),
-                    Duration::from_secs(*option::TCP_DOWNLINK_TIMEOUT),
-                )
-                .await
-                {
-                    Ok((up_count, down_count)) => {
-                        debug!(
-                            "tcp link {} <-> {} done, ({}, {}) bytes transferred [{}]",
-                            &sess.source,
-                            &sess.destination,
-                            up_count,
-                            down_count,
-                            &h.tag(),
-                        );
+                let cancel_token = CancellationToken::new();
+                self.all_session_cancel_tokens
+                    .write()
+                    .await
+                    .push(cancel_token.clone());
+                let _cancel_guard = cancel_token.clone().drop_guard();
+                select! {
+                    _ = cancel_token.cancelled() => {
+                        info!("tcp link {} <-> {} cancelled", &sess.source, &sess.destination);
                     }
-                    Err(e) => {
-                        debug!(
-                            "tcp link {} <-> {} error: {} [{}]",
-                            &sess.source,
-                            &sess.destination,
-                            e,
-                            &h.tag()
-                        );
+                    r = common::io::copy_buf_bidirectional_with_timeout(
+                        &mut lhs,
+                        &mut rhs,
+                        *option::LINK_BUFFER_SIZE * 1024,
+                        Duration::from_secs(*option::TCP_UPLINK_TIMEOUT),
+                        Duration::from_secs(*option::TCP_DOWNLINK_TIMEOUT),
+                    ) => {
+                        match r {
+                            Ok((up_count, down_count)) => {
+                                debug!(
+                                    "tcp link {} <-> {} done, ({}, {}) bytes transferred [{}]",
+                                    &sess.source,
+                                    &sess.destination,
+                                    up_count,
+                                    down_count,
+                                    &h.tag(),
+                                );
+                            }
+                            Err(e) => {
+                                debug!(
+                                    "tcp link {} <-> {} error: {} [{}]",
+                                    &sess.source,
+                                    &sess.destination,
+                                    e,
+                                    &h.tag()
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -301,6 +334,11 @@ impl Dispatcher {
             &sess.destination,
             h.tag()
         );
+        let cancel_token = CancellationToken::new();
+        self.all_session_cancel_tokens
+            .write()
+            .await
+            .push(cancel_token.clone());
         match h.datagram()?.handle(&sess, transport).await {
             #[allow(unused_mut)]
             Ok(mut d) => {
@@ -316,8 +354,8 @@ impl Dispatcher {
                         .await
                         .stat_outbound_datagram(d, sess.clone());
                 }
-
-                Ok(d)
+                let d = CancelableOutboundDatagram::new(d, cancel_token.clone());
+                Ok(Box::new(d) as AnyOutboundDatagram)
             }
             Err(e) => {
                 debug!(
@@ -331,5 +369,13 @@ impl Dispatcher {
                 Err(e)
             }
         }
+    }
+
+    pub async fn cancel_all_sessions(&self) {
+        let mut cancel_tokens = self.all_session_cancel_tokens.write().await;
+        for cancel_token in cancel_tokens.iter() {
+            cancel_token.cancel();
+        }
+        cancel_tokens.clear();
     }
 }

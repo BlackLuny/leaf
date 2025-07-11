@@ -59,7 +59,6 @@ impl NatManager {
         // The task is lazy, will not run until any sessions added.
         let timeout_check_task: BoxFuture<'static, ()> = Box::pin(async move {
             loop {
-                let n_total = sessions2.len();
                 let now = Instant::now();
                 let mut to_be_remove = Vec::new();
                 for kv in sessions2.iter() {
@@ -80,14 +79,6 @@ impl NatManager {
                     }
                 }
                 drop(to_be_remove); // drop explicitly
-                let n_remaining = sessions2.len();
-                // let n_removed = n_total - n_remaining;
-                // if n_removed > 0 {
-                //     debug!(
-                //         "removed {} nat sessions, remaining {} sessions",
-                //         n_removed, n_remaining
-                //     );
-                // }
                 tokio::time::sleep(Duration::from_secs(
                     *option::UDP_SESSION_TIMEOUT_CHECK_INTERVAL,
                 ))

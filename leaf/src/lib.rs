@@ -90,6 +90,7 @@ pub struct RuntimeManager {
     stat_manager: SyncStatManager,
     #[cfg(feature = "auto-reload")]
     watcher: Mutex<Option<RecommendedWatcher>>,
+    dispatcher: Arc<Dispatcher>,
 }
 
 impl RuntimeManager {
@@ -104,6 +105,7 @@ impl RuntimeManager {
         dns_client: Arc<RwLock<DnsClient>>,
         outbound_manager: Arc<RwLock<OutboundManager>>,
         #[cfg(feature = "stat")] stat_manager: SyncStatManager,
+        dispatcher: Arc<Dispatcher>,
     ) -> Arc<Self> {
         Arc::new(Self {
             #[cfg(feature = "auto-reload")]
@@ -120,6 +122,7 @@ impl RuntimeManager {
             stat_manager,
             #[cfg(feature = "auto-reload")]
             watcher: Mutex::new(None),
+            dispatcher,
         })
     }
 
@@ -172,8 +175,8 @@ impl RuntimeManager {
         Ok(result)
     }
 
-    pub async fn set_global_target(&self, target: Option<String>) {
-        self.router.write().await.set_global_target(target);
+    pub async fn set_global_target(&self, target: Option<String>) -> bool {
+        self.router.write().await.set_global_target(target)
     }
 
     pub async fn get_global_target(&self) -> Result<Option<String>, Error> {
@@ -197,6 +200,10 @@ impl RuntimeManager {
             result.push(info.clone());
         }
         Ok(result)
+    }
+
+    pub async fn cancel_all_sessions(&self) {
+        self.dispatcher.cancel_all_sessions().await;
     }
 
     // This function could block by an in-progress connection dialing.
@@ -481,7 +488,7 @@ pub fn start(
 
     let nat_manager = Arc::new(NatManager::new(dispatcher.clone()));
     let inbound_manager =
-        InboundManager::new(&config.inbounds, dispatcher, nat_manager).map_err(Error::Config)?;
+        InboundManager::new(&config.inbounds, dispatcher.clone(), nat_manager).map_err(Error::Config)?;
     let mut inbound_net_runners = inbound_manager
         .get_network_runners()
         .map_err(Error::Config)?;
@@ -575,6 +582,7 @@ pub fn start(
         outbound_manager,
         #[cfg(feature = "stat")]
         stat_manager,
+        dispatcher,
     );
 
     // Monitor config file changes.

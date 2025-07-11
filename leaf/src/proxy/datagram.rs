@@ -7,6 +7,7 @@ use std::{
 use async_trait::async_trait;
 use futures::TryFutureExt;
 use tokio::net::UdpSocket;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     app::SyncDnsClient,
@@ -321,5 +322,89 @@ impl InboundDatagramSendHalf for SimpleInboundDatagramSendHalf {
 
     async fn close(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+/// An outbound datagram that is cancelable.
+pub struct CancelableOutboundDatagram {
+    inner: AnyOutboundDatagram,
+    cancel_token: CancellationToken,
+}
+
+impl CancelableOutboundDatagram {
+    pub fn new(inner: AnyOutboundDatagram, cancel_token: CancellationToken) -> Self {
+        CancelableOutboundDatagram {
+            inner,
+            cancel_token,
+        }
+    }
+}
+
+impl OutboundDatagram for CancelableOutboundDatagram {
+    fn split(
+        self: Box<Self>,
+    ) -> (
+        Box<dyn OutboundDatagramRecvHalf>,
+        Box<dyn OutboundDatagramSendHalf>,
+    ) {
+        let (r, s) = self.inner.split();
+        (
+            Box::new(CancelableOutboundDatagramRecvHalf::new(
+                r,
+                self.cancel_token.clone(),
+            )),
+            Box::new(CancelableOutboundDatagramSendHalf::new(
+                s,
+                self.cancel_token.clone(),
+            )),
+        )
+    }
+}
+pub struct CancelableOutboundDatagramRecvHalf(Box<dyn OutboundDatagramRecvHalf>, CancellationToken);
+
+impl CancelableOutboundDatagramRecvHalf {
+    pub fn new(inner: Box<dyn OutboundDatagramRecvHalf>, cancel_token: CancellationToken) -> Self {
+        Self(inner, cancel_token)
+    }
+}
+
+#[async_trait]
+impl OutboundDatagramRecvHalf for CancelableOutboundDatagramRecvHalf {
+    async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocksAddr)> {
+        match self.0.recv_from(buf).await {
+            Ok((n, a)) => {
+                if self.1.is_cancelled() {
+                    return Err(io::Error::new(io::ErrorKind::Other, "cancelled"));
+                }
+                Ok((n, a))
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+pub struct CancelableOutboundDatagramSendHalf(
+    Box<dyn OutboundDatagramSendHalf>,
+    CancellationToken,
+);
+
+impl CancelableOutboundDatagramSendHalf {
+    pub fn new(inner: Box<dyn OutboundDatagramSendHalf>, cancel_token: CancellationToken) -> Self {
+        Self(inner, cancel_token)
+    }
+}
+
+#[async_trait]
+impl OutboundDatagramSendHalf for CancelableOutboundDatagramSendHalf {
+    async fn send_to(&mut self, buf: &[u8], target: &SocksAddr) -> io::Result<usize> {
+        if self.1.is_cancelled() {
+            return Err(io::Error::new(io::ErrorKind::Other, "cancelled"));
+        }
+        self.0.send_to(buf, target).await
+    }
+
+    async fn close(&mut self) -> io::Result<()> {
+        self.1.cancel();
+        self.0.close().await
     }
 }
