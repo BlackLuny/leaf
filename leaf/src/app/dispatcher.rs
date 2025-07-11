@@ -43,7 +43,7 @@ fn log_request(
     } else {
         (sess.network.to_string(), outbound_tag.to_string())
     };
-    info!(
+    debug!(
         "[{}] [{}] [{}] [{}] [{}] [{}]",
         sess.forwarded_source.unwrap_or_else(|| sess.source.ip()),
         network,

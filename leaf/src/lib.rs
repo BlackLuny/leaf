@@ -633,6 +633,7 @@ pub fn start(
         ))]
         let _restore = restore.take();
         let _ = shutdown_rx.recv().await;
+        trace!("shutdown signal received");
     }));
 
     // Monitor ctrl-c exit signal.
@@ -648,11 +649,13 @@ pub fn start(
 
     // #[cfg(not(target_os = "windows"))]
     // {
-    trace!("added runtime {}", &rt_id);
+    info!("added runtime {}", &rt_id);
     if let Some(started_notify) = started_notify {
         let _ = started_notify.send(Ok(()));
     }
     rt.block_on(futures::future::select_all(tasks));
+
+    trace!("shutdown rutime: {}", &rt_id);
 
     #[cfg(all(feature = "inbound-tun", any(target_os = "macos", target_os = "linux")))]
     sys::post_tun_completion_setup(&net_info);

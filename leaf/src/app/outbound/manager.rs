@@ -562,8 +562,10 @@ impl OutboundManager {
                             actors.iter().map(|x| x.handler().clone()).collect(),
                             &settings.method,
                         )?);
-                        let datagram =
-                            Box::new(r#static::DatagramHandler::new(actors, &settings.method)?);
+                        let datagram = Box::new(r#static::DatagramHandler::new(
+                            actors.iter().map(|x| x.handler().clone()).collect(),
+                            &settings.method,
+                        )?);
                         let handler = HandlerBuilder::default()
                             .tag(tag.clone())
                             .stream_handler(stream)

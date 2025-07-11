@@ -364,7 +364,13 @@ impl InboundManager {
     ))]
     pub fn get_tun_runner(&self) -> Result<(Runner, TunInfo)> {
         if let Some(listener) = &self.tun_listener {
-            return listener.listen();
+            match listener.listen() {
+                Ok(r) => return Ok(r),
+                Err(e) => {
+                    tracing::error!("failed to create tun listener: {}", e);
+                    return Err(e);
+                }
+            }
         }
         Err(anyhow!("no tun inbound"))
     }
