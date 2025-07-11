@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map, HashMap},
+    collections::{hash_map, HashMap, HashSet, VecDeque},
     convert::From,
     ops::Deref,
 };
@@ -7,7 +7,10 @@ use std::{
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use futures::future::AbortHandle;
+use futures::{
+    future::{join_all, AbortHandle},
+    StreamExt,
+};
 use protobuf::Message;
 use tracing::{debug, trace};
 
@@ -53,13 +56,15 @@ use crate::proxy::vmess;
 use crate::proxy::ws;
 
 use crate::{
-    app::SyncDnsClient,
+    app::{dns_client::DnsClient, SyncDnsClient},
     config::{self, Outbound},
-    proxy::{outbound::HandlerBuilder, *},
+    proxy::{failover::health_check, outbound::HandlerBuilder, *},
 };
 
 #[cfg(feature = "outbound-select")]
 use super::selector::OutboundSelector;
+
+use crate::proxy::failover::Measure;
 
 #[derive(Clone)]
 pub struct OutBoundHandlerInfo {
@@ -68,6 +73,7 @@ pub struct OutBoundHandlerInfo {
     settings: Arc<Vec<u8>>,
     sub_handlers: Arc<Vec<String>>,
     tag: String,
+    measures: Arc<RwLock<VecDeque<Measure>>>,
 }
 
 impl OutBoundHandlerInfo {
@@ -84,6 +90,7 @@ impl OutBoundHandlerInfo {
             protocol,
             settings: Arc::new(settings),
             sub_handlers: Arc::new(sub_handlers),
+            measures: Arc::new(RwLock::new(VecDeque::new())),
         }
     }
     pub fn handler(&self) -> &AnyOutboundHandler {
@@ -100,6 +107,16 @@ impl OutBoundHandlerInfo {
     }
     pub fn sub_handlers(&self) -> &Vec<String> {
         &self.sub_handlers
+    }
+    pub async fn append_measure(&self, measure: Measure) {
+        let mut lock = self.measures.write().await;
+        if lock.len() >= 10 {
+            lock.pop_front();
+        }
+        lock.push_back(measure);
+    }
+    pub async fn get_latest_measure(&self) -> Option<Measure> {
+        self.measures.read().await.back().cloned()
     }
 }
 
@@ -118,6 +135,7 @@ pub struct OutboundManager {
     selectors: Arc<super::Selectors>,
     default_handler: Option<String>,
     abort_handles: Vec<AbortHandle>,
+    dns_client: SyncDnsClient,
 }
 
 struct HandlerCacheEntry<'a> {
@@ -986,6 +1004,7 @@ impl OutboundManager {
 
         self.default_handler = default_handler;
         self.abort_handles = abort_handles;
+        self.dns_client = dns_client;
         Ok(())
     }
 
@@ -1025,6 +1044,7 @@ impl OutboundManager {
             selectors: Arc::new(selectors),
             default_handler,
             abort_handles,
+            dns_client,
         })
     }
 
@@ -1068,6 +1088,68 @@ impl OutboundManager {
     #[cfg(feature = "outbound-select")]
     pub fn get_selectable_outbounds(&self) -> Vec<(String)> {
         self.selectors.keys().map(|x| x.to_owned()).collect()
+    }
+
+    fn collect_tags(&self, sub_targets: Vec<String>, result: &mut HashSet<String>) {
+        for tag in sub_targets {
+            if let Some(handler) = self.handlers.get(&tag) {
+                if handler.sub_handlers().len() > 0 {
+                    self.collect_tags(handler.sub_handlers().clone(), result);
+                } else {
+                    result.insert(tag);
+                }
+            }
+        }
+    }
+
+    pub fn update_measure_for_outbounds(
+        &self,
+        outbounds_tags: Vec<String>,
+        completed_tx: tokio::sync::oneshot::Sender<anyhow::Result<()>>,
+    ) {
+        // get all measures for outbounds_tags
+        let mut targets_for_test = HashSet::new();
+        self.collect_tags(outbounds_tags, &mut targets_for_test);
+
+        let measures_stream = targets_for_test
+            .into_iter()
+            .map(|tag| {
+                let h = self.handlers.get(&tag).unwrap().clone();
+                let dns_client = self.dns_client.clone();
+                let delay = 100;
+                let health_check_timeout = 2000;
+                let health_check_attempts = 3;
+                let health_check_success_percentage = 100;
+                let result_measure = h.measures.clone();
+                Box::pin(async move {
+                    let result = health_check(
+                        crate::session::Network::Tcp,
+                        0,
+                        tag,
+                        h.handler().clone(),
+                        dns_client,
+                        delay,
+                        health_check_timeout,
+                        health_check_attempts,
+                        health_check_success_percentage,
+                    )
+                    .await;
+                    result_measure.write().await.push_back(result);
+                })
+            })
+            .collect::<Vec<_>>();
+        tokio::spawn(async move {
+            join_all(measures_stream).await;
+            completed_tx.send(Ok(())).unwrap();
+        });
+    }
+
+    pub fn measure_all_outbounds(
+        &self,
+        completed_tx: tokio::sync::oneshot::Sender<anyhow::Result<()>>,
+    ) {
+        let all_outbounds_tags = self.handlers.keys().map(|x| x.to_owned()).collect();
+        self.update_measure_for_outbounds(all_outbounds_tags, completed_tx);
     }
 }
 

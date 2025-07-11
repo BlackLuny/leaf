@@ -146,7 +146,8 @@ impl RuntimeManager {
 
     #[cfg(feature = "outbound-select")]
     pub async fn get_outbound_selected(&self, outbound: &str) -> Result<String, Error> {
-        if let Some(selector) = self.outbound_manager.read().await.get_selector(outbound) {
+        let selector = self.outbound_manager.read().await.get_selector(outbound);
+        if let Some(selector) = selector {
             return Ok(selector.read().await.get_selected_tag());
         }
         Err(Error::Config(anyhow!("not found")))
@@ -154,7 +155,8 @@ impl RuntimeManager {
 
     #[cfg(feature = "outbound-select")]
     pub async fn get_outbound_selects(&self, outbound: &str) -> Result<Vec<String>, Error> {
-        if let Some(selector) = self.outbound_manager.read().await.get_selector(outbound) {
+        let selector = self.outbound_manager.read().await.get_selector(outbound);
+        if let Some(selector) = selector {
             return Ok(selector.read().await.get_available_tags());
         }
         Err(Error::Config(anyhow!("not found")))
@@ -176,7 +178,10 @@ impl RuntimeManager {
     }
 
     pub async fn set_global_target(&self, target: Option<String>) -> bool {
-        self.router.write().await.set_global_target(target)
+        tracing::info!("set_global_target: {:?} before get lock", target);
+        let mut lock = self.router.write().await;
+        tracing::info!("set_global_target: {:?} after get lock", target);
+        lock.set_global_target(target)
     }
 
     pub async fn get_global_target(&self) -> Result<Option<String>, Error> {
@@ -206,6 +211,16 @@ impl RuntimeManager {
         self.dispatcher.cancel_all_sessions().await;
     }
 
+    pub async fn measure_all_outbounds(
+        &self,
+        completed_tx: tokio::sync::oneshot::Sender<anyhow::Result<()>>,
+    ) {
+        self.outbound_manager
+            .read()
+            .await
+            .measure_all_outbounds(completed_tx);
+    }
+
     // This function could block by an in-progress connection dialing.
     //
     // TODO Reload FakeDns. And perhaps the inbounds as long as the listening
@@ -218,6 +233,7 @@ impl RuntimeManager {
         };
         info!("reloading from config file: {}", config_path);
         let mut config = config::from_file(config_path).map_err(Error::Config)?;
+        #[cfg(not(feature = "no-tracing"))]
         app::logger::setup_logger(&config.log)?;
         self.router.write().await.reload(&mut config.router)?;
         self.dns_client.write().await.reload(&config.dns)?;
@@ -487,8 +503,8 @@ pub fn start(
     });
 
     let nat_manager = Arc::new(NatManager::new(dispatcher.clone()));
-    let inbound_manager =
-        InboundManager::new(&config.inbounds, dispatcher.clone(), nat_manager).map_err(Error::Config)?;
+    let inbound_manager = InboundManager::new(&config.inbounds, dispatcher.clone(), nat_manager)
+        .map_err(Error::Config)?;
     let mut inbound_net_runners = inbound_manager
         .get_network_runners()
         .map_err(Error::Config)?;

@@ -21,16 +21,25 @@ pub mod stream;
 pub use datagram::Handler as DatagramHandler;
 pub use stream::Handler as StreamHandler;
 
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Measure {
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd, Clone)]
+pub struct Measure {
     idx: usize,
     rtt: u128,
     tag: String,
 }
 
 impl Measure {
-    fn new(idx: usize, rtt: u128, tag: String) -> Self {
+    pub fn new(idx: usize, rtt: u128, tag: String) -> Self {
         Self { idx, rtt, tag }
+    }
+    pub fn tag(&self) -> &str {
+        &self.tag
+    }
+    pub fn idx(&self) -> usize {
+        self.idx
+    }
+    pub fn rtt(&self) -> u128 {
+        self.rtt
     }
 }
 
@@ -182,7 +191,7 @@ async fn single_health_check(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn health_check(
+pub async fn health_check(
     network: Network,
     idx: usize,
     tag: String,
