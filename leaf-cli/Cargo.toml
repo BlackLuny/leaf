@@ -12,8 +12,11 @@ path = "src/main.rs"
 default = [
   "leaf/inbound-shadowsocks",
   "leaf/outbound-private-tun",
+  "leaf/outbound-failover",
+  "leaf/outbound-select",
   "leaf/ring-aead",
   "leaf/config-json",
+  "leaf/rustls-tls",
   #"leaf/outbound-quic",
   #"leaf/outbound-quic",
   "leaf/ctrlc",

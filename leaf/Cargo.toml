@@ -151,7 +151,7 @@ bytes = "1.6"
 lazy_static = "1.4"
 anyhow = "1.0"
 rand = "0.8"
-socket2 = "0.5"
+socket2 = "0.6"
 async-recursion = "1.1"
 
 # DNS

@@ -437,6 +437,8 @@ impl OutboundManager {
                     tokio::spawn(async move {
                         use ::private_tun::snell_impl_ver::client_run::init_ring_provider;
                         use socket2::Socket;
+
+                        use crate::session::SocksAddr;
                         let _ = init_ring_provider();
                         notifier_clone.notified().await;
                         let _h = run_client_with_config_and_name(

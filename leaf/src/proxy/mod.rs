@@ -373,7 +373,7 @@ fn apply_socket_opts_internal(s: SockRef) -> io::Result<()> {
         .with_time(Duration::from_secs(300))
         .with_interval(std::time::Duration::from_secs(2));
     s.set_tcp_keepalive(&keep_alive)?;
-    s.set_nodelay(true)
+    s.set_tcp_nodelay(true)
 }
 
 #[cfg(unix)]

@@ -2,7 +2,7 @@ use std::{io, sync::Arc, time::Duration};
 
 use async_ringbuf::traits::AsyncProducer;
 use async_trait::async_trait;
-use private_tun::snell_impl_ver::{client_zfc::ConnType, udp_intf::AsyncRingBufSender};
+use private_tun::snell_impl_ver::client_zfc::ConnType;
 use tokio::io::duplex;
 use tokio::sync::oneshot;
 use tracing::debug;
@@ -120,7 +120,7 @@ impl OutboundStreamHandler for Handler {
         // });
 
         // Create ConnType for Duplex connection
-        let conn_type = private_tun::snell_impl_ver::client_zfc::ConnType::Duplex {
+        let conn_type = ConnType::Duplex {
             stream: mem_duplex,
             target,
             rst_tx,
