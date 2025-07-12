@@ -7,6 +7,7 @@ use std::{
 
 use bytes::BufMut;
 use tokio::io::{AsyncRead, AsyncReadExt};
+use uuid::Uuid;
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub enum Network {
@@ -48,6 +49,7 @@ impl std::fmt::Display for DatagramSource {
 }
 
 pub struct Session {
+    pub id: Uuid,
     /// The network type, representing either TCP or UDP.
     pub network: Network,
     /// The socket address of the remote peer of an inbound connection.
@@ -72,6 +74,7 @@ pub struct Session {
 impl Clone for Session {
     fn clone(&self) -> Self {
         Session {
+            id: self.id,
             network: self.network,
             source: self.source,
             local_addr: self.local_addr,
@@ -88,6 +91,7 @@ impl Clone for Session {
 impl Default for Session {
     fn default() -> Self {
         Session {
+            id: Uuid::new_v4(),
             network: Network::Tcp,
             source: *crate::option::UNSPECIFIED_BIND_ADDR,
             local_addr: *crate::option::UNSPECIFIED_BIND_ADDR,

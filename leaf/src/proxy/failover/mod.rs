@@ -61,7 +61,7 @@ async fn single_health_check(
     .await;
 
     let dest = match network {
-        Network::Tcp => SocksAddr::Domain("www.google.com".to_string(), 443),
+        Network::Tcp => SocksAddr::Domain("cp.cloudflare.com".to_string(), 443),
         Network::Udp => SocksAddr::Ip(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53)),
     };
 
@@ -101,7 +101,11 @@ async fn single_health_check(
                         return Measure::new(idx, u128::MAX - 1, tag);
                     };
 
-                    if stream.write_all(b"GET / HTTP/1.1\r\n\r\n").await.is_err() {
+                    if stream
+                        .write_all(b"GET /generate_204 HTTP/1.1\r\n\r\n")
+                        .await
+                        .is_err()
+                    {
                         return Measure::new(idx, u128::MAX - 2, tag);
                     }
                     let mut buf = BytesMut::with_capacity(2 * 1024);
@@ -194,6 +198,163 @@ async fn single_health_check(
     }
 }
 
+async fn start_one_turn(stream: &mut AnyStream, buf: &mut BytesMut) -> anyhow::Result<usize> {
+    let start = Instant::now();
+    if stream
+        .write_all(b"HEAD /generate_204 HTTP/1.1\r\nConnection: keep-alive\r\n\r\n")
+        .await
+        .is_err()
+    {
+        return Err(anyhow::anyhow!("write failed"));
+    }
+    debug!("write time: {:?}", start.elapsed());
+    match stream.read_u8().await {
+        Ok(_n) => {
+            debug!("read time: {:?}", start.elapsed());
+            Ok(1)
+        }
+        Err(_) => Err(anyhow::anyhow!("read failed")),
+    }
+}
+
+async fn single_health_check_http(
+    network: Network,
+    idx: usize,
+    tag: String,
+    h: AnyOutboundHandler,
+    dns_client: SyncDnsClient,
+    delay: u32,
+) -> Measure {
+    tokio::time::sleep(Duration::from_millis(
+        StdRng::from_entropy().gen_range(0..=delay) as u64,
+    ))
+    .await;
+
+    let dest = match network {
+        Network::Tcp => SocksAddr::Domain("cp.cloudflare.com".to_string(), 80),
+        Network::Udp => SocksAddr::Ip(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53)),
+    };
+
+    let sess = Session {
+        destination: dest,
+        new_conn_once: true,
+        ..Default::default()
+    };
+
+    match network {
+        Network::Tcp => {
+            let stream = match crate::proxy::connect_stream_outbound(&sess, dns_client, &h).await {
+                Ok(s) => s,
+                Err(_) => return Measure::new(idx, u128::MAX, tag),
+            };
+            let m: Measure;
+
+            let Ok(h) = h.stream() else {
+                return Measure::new(idx, u128::MAX, tag);
+            };
+
+            // TODO Mock an LHS stream with the given payload.
+            match h.handle(&sess, None, stream).await {
+                Ok(mut stream) => {
+                    let mut buf = BytesMut::with_capacity(2 * 1024);
+                    // let n = match start_one_turn(&mut stream, &mut buf).await {
+                    //     Ok(n) => n,
+                    //     Err(_) => return Measure::new(idx, u128::MAX - 3, tag),
+                    // };
+                    // // buf.clear();
+                    let start = Instant::now();
+                    match start_one_turn(&mut stream, &mut buf).await {
+                        Ok(n) => {
+                            let elapsed = Instant::now().duration_since(start);
+                            // debug!(
+                            //     "received {} bytes tcp health check response from {} in {} ms: {}",
+                            //     n,
+                            //     &tag,
+                            //     elapsed.as_millis(),
+                            //     String::from_utf8_lossy(&buf[..n.min(12)]),
+                            // );
+
+                            m = Measure::new(idx, elapsed.as_millis(), tag);
+                        }
+                        Err(e) => {
+                            warn!("start_one_turn failed: {}", e);
+                            return Measure::new(idx, u128::MAX - 3, tag);
+                        }
+                    };
+                    let _ = stream.shutdown().await;
+                }
+                Err(_) => {
+                    m = Measure::new(idx, u128::MAX, tag);
+                }
+            }
+            m
+        }
+        Network::Udp => {
+            let transport =
+                match crate::proxy::connect_datagram_outbound(&sess, dns_client, &h).await {
+                    Ok(t) => t,
+                    Err(_) => return Measure::new(idx, u128::MAX, tag),
+                };
+            let h = if let Ok(h) = h.datagram() {
+                h
+            } else {
+                return Measure::new(idx, u128::MAX, tag);
+            };
+            match h.handle(&sess, transport).await {
+                Ok(socket) => {
+                    let start = Instant::now();
+                    let addr =
+                        SocksAddr::Ip(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53));
+                    let mut msg = Message::new();
+                    let name = match Name::from_str("www.google.com.") {
+                        Ok(n) => n,
+                        Err(e) => {
+                            warn!("invalid domain name: {}", e);
+                            return Measure::new(idx, u128::MAX, tag);
+                        }
+                    };
+                    let query = Query::query(name, RecordType::A);
+                    msg.add_query(query);
+                    let mut rng = StdRng::from_entropy();
+                    let id: u16 = rng.gen();
+                    msg.set_id(id);
+                    msg.set_op_code(OpCode::Query);
+                    msg.set_message_type(MessageType::Query);
+                    msg.set_recursion_desired(true);
+                    let msg_buf = match msg.to_vec() {
+                        Ok(b) => b,
+                        Err(e) => {
+                            warn!("encode message to buffer failed: {}", e);
+                            return Measure::new(idx, u128::MAX, tag);
+                        }
+                    };
+
+                    let (mut recv, mut send) = socket.split();
+
+                    if send.send_to(&msg_buf, &addr).await.is_err() {
+                        return Measure::new(idx, u128::MAX - 2, tag);
+                    }
+                    let mut buf = vec![0u8; 1500];
+                    match recv.recv_from(&mut buf).await {
+                        Ok((n, _)) => {
+                            let elapsed = tokio::time::Instant::now().duration_since(start);
+                            debug!(
+                                "received {} bytes udp health check response from {} in {} ms",
+                                n,
+                                &tag,
+                                elapsed.as_millis()
+                            );
+                            Measure::new(idx, elapsed.as_millis(), tag)
+                        }
+                        Err(_) => Measure::new(idx, u128::MAX - 3, tag),
+                    }
+                }
+                Err(_) => Measure::new(idx, u128::MAX, tag),
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn health_check(
     network: Network,
@@ -213,7 +374,7 @@ pub async fn health_check(
     for _ in 0..health_check_attempts {
         attempts.push(timeout(
             health_check_timeout,
-            single_health_check(
+            single_health_check_http(
                 network,
                 idx,
                 tag.clone(),

@@ -113,9 +113,10 @@ outbound-chain = []
 outbound-amux= ["tokio-util"]
 outbound-quic = ["quinn", "rustls", "webpki-roots-old", "rustls-pemfile-old"]
 outbound-select = ["directories"]
-outbound-vmess = ["lz_fnv", "cfb-mode", "hmac", "aes", "sha3", "digest", "uuid", "md-5", "tokio-util", "byteorder"]
+outbound-vmess = ["lz_fnv", "cfb-mode", "hmac", "aes", "sha3", "digest", "md-5", "tokio-util", "byteorder"]
 outbound-private-tun = ["private_tun", "async-ringbuf", "serde_json", "tokio-util"]
 private_tun_smart_mode = ["private_tun/sqlite"]
+detail_stat = ["private_tun/detail_stat"]
 
 # Inbounds
 inbound-trojan = ["sha2", "hex"]
@@ -233,7 +234,7 @@ hmac = { version = "0.12", optional = true }
 aes = { version = "0.8", optional = true }
 sha3 = { version = "0.10", optional = true }
 digest = { version = "0.10", optional = true }
-uuid = { version = "1", optional = true }
+uuid = { version = "1"}
 byteorder = { version = "1", optional = true }
 
 # Failover
