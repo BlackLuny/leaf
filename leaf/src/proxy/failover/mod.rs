@@ -4,6 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use bytes::BytesMut;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Mutex, Notify};
 use tokio::time::{timeout, Instant};
@@ -21,7 +22,7 @@ pub mod stream;
 pub use datagram::Handler as DatagramHandler;
 pub use stream::Handler as StreamHandler;
 
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd, Clone)]
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd, Clone, Serialize, Deserialize)]
 pub struct Measure {
     idx: usize,
     rtt: u128,
@@ -40,6 +41,9 @@ impl Measure {
     }
     pub fn rtt(&self) -> u128 {
         self.rtt
+    }
+    pub fn is_ok(&self) -> bool {
+        self.rtt < 5000
     }
 }
 

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use futures::{
-    future::{join_all, AbortHandle},
+    future::{join_all, select_all, AbortHandle},
     StreamExt,
 };
 use protobuf::Message;
@@ -1090,13 +1090,29 @@ impl OutboundManager {
         self.selectors.keys().map(|x| x.to_owned()).collect()
     }
 
-    fn collect_tags(&self, sub_targets: Vec<String>, result: &mut HashSet<String>) {
-        for tag in sub_targets {
+    pub fn collect_tags(&self, targets: &Vec<String>, result: &mut HashSet<String>) {
+        let mut working_set = targets
+            .iter()
+            .map(|x| (x.clone(), true))
+            .collect::<VecDeque<_>>();
+        while let Some((tag, should_check_sub_handlers)) = working_set.pop_front() {
             if let Some(handler) = self.handlers.get(&tag) {
-                if handler.sub_handlers().len() > 0 {
-                    self.collect_tags(handler.sub_handlers().clone(), result);
-                } else {
-                    result.insert(tag);
+                result.insert(tag.clone());
+
+                // sub handlers
+                if should_check_sub_handlers && handler.sub_handlers().len() > 0 {
+                    for sub_tag in handler.sub_handlers() {
+                        if !result.contains(sub_tag) {
+                            working_set.push_back((sub_tag.clone(), true));
+                        }
+                    }
+                }
+
+                // parent handlers
+                for handler in self.handlers().into_iter() {
+                    if handler.sub_handlers().contains(&tag) && !result.contains(handler.tag()) {
+                        working_set.push_back((handler.tag().to_string(), false));
+                    }
                 }
             }
         }
@@ -1105,51 +1121,160 @@ impl OutboundManager {
     pub fn update_measure_for_outbounds(
         &self,
         outbounds_tags: Vec<String>,
-        completed_tx: tokio::sync::oneshot::Sender<anyhow::Result<()>>,
-    ) {
+    ) -> HashMap<String, tokio::sync::oneshot::Receiver<Measure>> {
         // get all measures for outbounds_tags
         let mut targets_for_test = HashSet::new();
-        self.collect_tags(outbounds_tags, &mut targets_for_test);
+        self.collect_tags(&outbounds_tags, &mut targets_for_test);
+
+        tracing::info!("targets_for_test: {:?}", targets_for_test);
+
+        let mut all_broadcast_sender = HashMap::new();
+        for tag in targets_for_test.iter() {
+            let (tx, rx) = tokio::sync::broadcast::channel::<Measure>(1);
+            all_broadcast_sender.insert(tag.clone(), (tx, rx));
+        }
+
+        let mut task_handles = HashMap::new();
 
         let measures_stream = targets_for_test
             .into_iter()
             .map(|tag| {
                 let h = self.handlers.get(&tag).unwrap().clone();
                 let dns_client = self.dns_client.clone();
-                let delay = 100;
+                let delay = 50;
                 let health_check_timeout = 2000;
-                let health_check_attempts = 3;
+                let health_check_attempts = 1;
                 let health_check_success_percentage = 100;
                 let result_measure = h.measures.clone();
+                let (tx, mut rx) = tokio::sync::oneshot::channel::<Measure>();
+
+                let sbu_tasks = h
+                    .sub_handlers()
+                    .iter()
+                    .filter_map(|sub_tag| {
+                        if let Some((tx, _rx)) = all_broadcast_sender.get(sub_tag) {
+                            let tx = tx.clone();
+                            let sub_tag = sub_tag.clone();
+                            Some(Box::pin(async move {
+                                let mut rx = tx.subscribe();
+                                let result = rx.recv().await.unwrap();
+                                (sub_tag, result)
+                            }))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                task_handles.insert(tag.clone(), rx);
+                let broad_sender = all_broadcast_sender.get(&tag).map(|x| x.0.clone());
+                #[cfg(feature = "outbound-select")]
+                let selectors = self.selectors.clone();
+
+                let all_sub_handlers = h
+                    .sub_handlers()
+                    .iter()
+                    .filter_map(|x| self.get_outbound_info(x))
+                    .collect::<Vec<_>>();
                 Box::pin(async move {
-                    let result = health_check(
-                        crate::session::Network::Tcp,
-                        0,
-                        tag,
-                        h.handler().clone(),
-                        dns_client,
-                        delay,
-                        health_check_timeout,
-                        health_check_attempts,
-                        health_check_success_percentage,
-                    )
-                    .await;
-                    result_measure.write().await.push_back(result);
+                    let final_result = if sbu_tasks.len() > 0 {
+                        // 等待所有子任务完成
+                        let _sub_completed = join_all(sbu_tasks).await;
+                        let mut sub_results = Vec::new();
+                        // 获取所有子任务的最新测量结果
+                        for sub_handler in all_sub_handlers {
+                            let measure = sub_handler.get_latest_measure().await;
+                            if let Some(measure) = measure {
+                                sub_results.push((sub_handler.tag().to_string(), measure));
+                            }
+                        }
+                        get_final_result_for_group(
+                            sub_results,
+                            &h,
+                            #[cfg(feature = "outbound-select")]
+                            selectors,
+                        )
+                        .await
+                    } else {
+                        health_check(
+                            crate::session::Network::Tcp,
+                            0,
+                            tag,
+                            h.handler().clone(),
+                            dns_client,
+                            delay,
+                            health_check_timeout,
+                            health_check_attempts,
+                            health_check_success_percentage,
+                        )
+                        .await
+                    };
+                    result_measure.write().await.push_back(final_result.clone());
+                    // send to broadcaster
+                    if let Some(broad_sender) = broad_sender {
+                        let _ = broad_sender.send(final_result.clone());
+                    }
+                    // send to oneshot channel
+                    let _ = tx.send(final_result);
                 })
             })
             .collect::<Vec<_>>();
         tokio::spawn(async move {
             join_all(measures_stream).await;
-            completed_tx.send(Ok(())).unwrap();
         });
+        task_handles
     }
 
     pub fn measure_all_outbounds(
         &self,
-        completed_tx: tokio::sync::oneshot::Sender<anyhow::Result<()>>,
-    ) {
+    ) -> HashMap<String, tokio::sync::oneshot::Receiver<Measure>> {
         let all_outbounds_tags = self.handlers.keys().map(|x| x.to_owned()).collect();
-        self.update_measure_for_outbounds(all_outbounds_tags, completed_tx);
+        self.update_measure_for_outbounds(all_outbounds_tags)
+    }
+}
+
+async fn get_final_result_for_group(
+    sub_results: Vec<(String, Measure)>,
+    handler_info: &OutBoundHandlerInfo,
+    #[cfg(feature = "outbound-select")] selectors: Arc<super::Selectors>,
+) -> Measure {
+    match handler_info.protocol() {
+        #[cfg(feature = "outbound-select")]
+        "select" => {
+            let selected = selectors
+                .get(handler_info.tag())
+                .unwrap()
+                .read()
+                .await
+                .get_selected_tag();
+            let selected_result = sub_results.iter().find(|x| x.0 == selected);
+            if let Some(selected_result) = selected_result {
+                selected_result.1.clone()
+            } else {
+                Measure::new(0, u128::MAX, handler_info.tag().to_string())
+            }
+        }
+        "failover" => {
+            let first_of_ok = sub_results.iter().find(|x| x.1.is_ok());
+            if let Some(first_of_ok) = first_of_ok {
+                first_of_ok.1.clone()
+            } else {
+                Measure::new(0, u128::MAX, handler_info.tag().to_string())
+            }
+        }
+        _ => {
+            // return smallest rtt
+            let mut sub_results = sub_results
+                .into_iter()
+                .map(|x| (x.1.rtt(), x.1))
+                .collect::<Vec<_>>();
+            sub_results.sort_by(|a, b| a.0.cmp(&b.0));
+            if sub_results.len() > 0 {
+                sub_results[0].1.clone()
+            } else {
+                Measure::new(0, u128::MAX, handler_info.tag().to_string())
+            }
+        }
     }
 }
 

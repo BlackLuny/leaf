@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io;
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
@@ -29,6 +30,7 @@ use crate::app::{stat_manager::StatManager, SyncStatManager};
 
 #[cfg(feature = "api")]
 use crate::app::api::api_server::ApiServer;
+use crate::proxy::failover::Measure;
 
 pub mod app;
 pub mod common;
@@ -213,12 +215,28 @@ impl RuntimeManager {
 
     pub async fn measure_all_outbounds(
         &self,
-        completed_tx: tokio::sync::oneshot::Sender<anyhow::Result<()>>,
-    ) {
+    ) -> HashMap<String, tokio::sync::oneshot::Receiver<Measure>> {
+        self.outbound_manager.read().await.measure_all_outbounds()
+    }
+
+    pub async fn measure_latency_for_outbounds(
+        &self,
+        tags: Vec<String>,
+    ) -> HashMap<String, tokio::sync::oneshot::Receiver<Measure>> {
         self.outbound_manager
             .read()
             .await
-            .measure_all_outbounds(completed_tx);
+            .update_measure_for_outbounds(tags)
+    }
+
+    pub async fn get_related_proxy_tags(
+        &self,
+        tags: Vec<String>,
+    ) -> Result<HashSet<String>, Error> {
+        let outbound_manager = self.outbound_manager.read().await;
+        let mut result = HashSet::new();
+        outbound_manager.collect_tags(&tags, &mut result);
+        Ok(result)
     }
 
     // This function could block by an in-progress connection dialing.
