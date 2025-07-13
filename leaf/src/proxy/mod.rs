@@ -616,7 +616,10 @@ pub enum OutboundConnect {
 
 /// An outbound handler for outgoing TCP conections.
 #[async_trait]
-pub trait OutboundStreamHandler<S = AnyStream>: Send + Sync + Unpin {
+pub trait OutboundStreamHandler<S = AnyStream>: Send + Sync + Unpin
+where
+    S: Send + Sync + Unpin + 'static,
+{
     /// Returns the address which the underlying transport should
     /// communicate with.
     async fn connect_addr(&self, sess: &Session) -> OutboundConnect;
@@ -629,6 +632,19 @@ pub trait OutboundStreamHandler<S = AnyStream>: Send + Sync + Unpin {
         lhs: Option<&mut S>,
         stream: Option<S>,
     ) -> io::Result<S>;
+
+    fn relay_by_my_self(&self) -> bool {
+        false
+    }
+
+    async fn handle_by_my_self<'a>(
+        &'a self,
+        sess: &'a Session,
+        lhs: S,
+        stream: Option<S>,
+    ) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Other, "not implemented"))
+    }
 }
 
 type AnyOutboundStreamHandler = Box<dyn OutboundStreamHandler>;

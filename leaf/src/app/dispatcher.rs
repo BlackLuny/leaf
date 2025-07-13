@@ -216,6 +216,25 @@ impl Dispatcher {
                 return;
             }
         };
+        if th.relay_by_my_self() {
+            match th.handle_by_my_self(&sess, lhs, stream).await {
+                Ok(()) => {
+                    debug!("tcp link {} <-> {} done", &sess.source, &sess.destination);
+                    log_request(&sess, h.tag(), h.color(), None);
+                }
+                Err(e) => {
+                    debug!(
+                        "tcp link {} <-> {} error: {} [{}]",
+                        &sess.source,
+                        &sess.destination,
+                        e,
+                        &h.tag()
+                    );
+                    log_request(&sess, h.tag(), h.color(), None);
+                }
+            }
+            return;
+        }
         match th.handle(&sess, Some(&mut lhs), stream).await {
             Ok(mut rhs) => {
                 let elapsed = tokio::time::Instant::now().duration_since(handshake_start);
