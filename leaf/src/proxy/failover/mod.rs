@@ -257,22 +257,10 @@ async fn single_health_check_http(
             match h.handle(&sess, None, stream).await {
                 Ok(mut stream) => {
                     let mut buf = BytesMut::with_capacity(2 * 1024);
-                    // let n = match start_one_turn(&mut stream, &mut buf).await {
-                    //     Ok(n) => n,
-                    //     Err(_) => return Measure::new(idx, u128::MAX - 3, tag),
-                    // };
-                    // // buf.clear();
                     let start = Instant::now();
                     match start_one_turn(&mut stream, &mut buf).await {
                         Ok(n) => {
                             let elapsed = Instant::now().duration_since(start);
-                            // debug!(
-                            //     "received {} bytes tcp health check response from {} in {} ms: {}",
-                            //     n,
-                            //     &tag,
-                            //     elapsed.as_millis(),
-                            //     String::from_utf8_lossy(&buf[..n.min(12)]),
-                            // );
 
                             m = Measure::new(idx, elapsed.as_millis(), tag);
                         }

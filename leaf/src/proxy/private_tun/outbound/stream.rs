@@ -57,10 +57,51 @@ impl OutboundStreamHandler for Handler {
     async fn handle<'a>(
         &'a self,
         sess: &'a Session,
-        lhs: Option<&mut AnyStream>,
+        _lhs: Option<&mut AnyStream>,
         stream: Option<AnyStream>,
     ) -> io::Result<AnyStream> {
-        Err(io::Error::new(io::ErrorKind::Other, "not implemented"))
+        // Create a duplex channel to bridge leaf's stream with private_tun
+        let (client_side_pipe0, client_side_pipe1) = duplex(2048);
+        // let (server_side_pipe0, mut server_side_pipe1) = duplex(8192);
+
+        // Create MemDuplex using private_tun's implementation
+        let mem_duplex = private_tun::self_proxy::MemDuplex::new(
+            client_side_pipe0,
+            self.client.cancel_token.clone(),
+        );
+
+        // Convert destination to private_tun's Address format
+        let target = match &sess.destination {
+            crate::session::SocksAddr::Ip(addr) => private_tun::address::Address::Socket(*addr),
+            crate::session::SocksAddr::Domain(domain, port) => {
+                private_tun::address::Address::Domain(domain.clone().into(), *port)
+            }
+        };
+
+        // Create oneshot channel for response
+        let (rst_tx, _rst_rx) = oneshot::channel();
+
+        // Create ConnType for Duplex connection
+        let conn_type = ConnType::Duplex {
+            stream: mem_duplex,
+            target,
+            rst_tx,
+            server_name: None,
+            traffic_collector: None,
+            one_rtt: false,
+            reuse_tcp: true,
+            piped_stream: None,
+        };
+
+        // Send connection request to private_tun client
+        self.client.push_event(conn_type).await.map_err(|_e| {
+            io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                format!("failed to send connection request"),
+            )
+        })?;
+
+        Ok(Box::new(client_side_pipe1))
     }
 
     async fn handle_by_my_self<'a>(
