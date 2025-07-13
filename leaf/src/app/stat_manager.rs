@@ -228,6 +228,27 @@ impl StatManager {
         })
     }
 
+    pub fn stat_stream_l(&mut self, stream: AnyStream, sess: Session) -> AnyStream {
+        let bytes_recvd = Arc::new(AtomicU64::new(0));
+        let bytes_sent = Arc::new(AtomicU64::new(0));
+        let recv_completed = Arc::new(AtomicBool::new(false));
+        let send_completed = Arc::new(AtomicBool::new(false));
+        self.counters.push(Counter {
+            sess,
+            bytes_sent: bytes_recvd.clone(),
+            bytes_recvd: bytes_sent.clone(),
+            recv_completed: send_completed.clone(),
+            send_completed: recv_completed.clone(),
+        });
+        Box::new(Stream {
+            inner: stream,
+            bytes_recvd,
+            bytes_sent,
+            recv_completed,
+            send_completed,
+        })
+    }
+
     pub fn stat_outbound_datagram(
         &mut self,
         dgram: AnyOutboundDatagram,

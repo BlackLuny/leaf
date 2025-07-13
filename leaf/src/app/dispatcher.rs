@@ -3,6 +3,7 @@ use std::io::{self, ErrorKind};
 use std::sync::Arc;
 use std::time::Duration;
 
+use ::private_tun::self_proxy::Closeable;
 use async_recursion::async_recursion;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::select;
@@ -217,6 +218,21 @@ impl Dispatcher {
             }
         };
         if th.relay_by_my_self() {
+            let cancel_token = CancellationToken::new();
+            self.all_session_cancel_tokens
+                .write()
+                .await
+                .push(cancel_token.clone());
+            lhs = Box::new(Closeable::new(lhs, cancel_token.clone())) as AnyStream;
+            #[cfg(feature = "stat")]
+            if *crate::option::ENABLE_STATS {
+                lhs = self
+                    .stat_manager
+                    .write()
+                    .await
+                    .stat_stream_l(lhs, sess.clone());
+            }
+
             match th.handle_by_my_self(&sess, lhs, stream).await {
                 Ok(()) => {
                     debug!("tcp link {} <-> {} done", &sess.source, &sess.destination);
@@ -256,9 +272,7 @@ impl Dispatcher {
                     .push(cancel_token.clone());
                 let _cancel_guard = cancel_token.clone().drop_guard();
                 select! {
-                    _ = cancel_token.cancelled() => {
-                        info!("tcp link {} <-> {} cancelled", &sess.source, &sess.destination);
-                    }
+                    biased;
                     r = common::io::copy_buf_bidirectional_with_timeout(
                         &mut lhs,
                         &mut rhs,
@@ -287,6 +301,9 @@ impl Dispatcher {
                                 );
                             }
                         }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        info!("tcp link {} <-> {} cancelled", &sess.source, &sess.destination);
                     }
                 }
             }
