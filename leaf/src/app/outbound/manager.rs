@@ -1233,6 +1233,19 @@ impl OutboundManager {
         let all_outbounds_tags = self.handlers.keys().map(|x| x.to_owned()).collect();
         self.update_measure_for_outbounds(all_outbounds_tags)
     }
+
+    pub async fn get_all_outbounds_latency(&self) -> HashMap<String, u64> {
+        let mut all_outbounds_latency = HashMap::new();
+        for (tag, handler) in self.handlers.iter() {
+            let measure = handler.get_latest_measure().await;
+            if let Some(measure) = measure {
+                all_outbounds_latency.insert(tag.to_string(), measure.rtt() as u64);
+            } else {
+                all_outbounds_latency.insert(tag.to_string(), 5000);
+            }
+        }
+        all_outbounds_latency
+    }
 }
 
 async fn get_final_result_for_group(

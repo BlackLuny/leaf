@@ -209,6 +209,14 @@ impl RuntimeManager {
         Ok(result)
     }
 
+    pub async fn get_all_outbounds_latency(&self) -> HashMap<String, u64> {
+        self.outbound_manager
+            .read()
+            .await
+            .get_all_outbounds_latency()
+            .await
+    }
+
     pub async fn cancel_all_sessions(&self) {
         self.dispatcher.cancel_all_sessions().await;
     }
