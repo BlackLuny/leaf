@@ -93,6 +93,7 @@ impl OutboundDatagramHandler for Handler {
             traffic_collector: None,
             server_name: None,
             piped_stream: None,
+            custom_udp_socket: None,
         };
 
         // Send connection request to private_tun client
