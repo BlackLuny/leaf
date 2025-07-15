@@ -17,6 +17,8 @@ default = [
   "leaf/ring-aead",
   "leaf/config-json",
   "leaf/rustls-tls",
+  "leaf/private_tun_mmsg",
+  "leaf/private_tun_smart_mode",
   #"leaf/outbound-quic",
   #"leaf/outbound-quic",
   "leaf/ctrlc",

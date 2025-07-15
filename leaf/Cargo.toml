@@ -116,6 +116,7 @@ outbound-select = ["directories"]
 outbound-vmess = ["lz_fnv", "cfb-mode", "hmac", "aes", "sha3", "digest", "md-5", "tokio-util", "byteorder"]
 outbound-private-tun = ["private_tun", "async-ringbuf", "serde_json", "tokio-util"]
 private_tun_smart_mode = ["private_tun/sqlite"]
+private_tun_mmsg = ["private_tun/mmsg"]
 detail_stat = ["private_tun/detail_stat"]
 
 # Inbounds
