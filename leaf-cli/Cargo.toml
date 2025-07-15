@@ -29,6 +29,7 @@ default = [
 windows = [
   "leaf/inbound-tun",
   "leaf/outbound-private-tun",
+  "leaf/private_tun_smart_mode",
   "leaf/config-json",
   "leaf/ring-aead",
   "leaf/ctrlc",
