@@ -78,6 +78,9 @@ impl NatManager {
                         debug!("udp session {} ended", key);
                     }
                 }
+                if !to_be_remove.is_empty() {
+                    sessions2.shrink_to_fit();
+                }
                 drop(to_be_remove); // drop explicitly
                 tokio::time::sleep(Duration::from_secs(
                     *option::UDP_SESSION_TIMEOUT_CHECK_INTERVAL,
