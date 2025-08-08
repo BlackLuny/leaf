@@ -94,6 +94,7 @@ impl OutboundDatagramHandler for Handler {
             server_name: None,
             piped_stream: None,
             remote_stream_connector: None,
+            speed_rate: None,
         };
 
         // Send connection request to private_tun client

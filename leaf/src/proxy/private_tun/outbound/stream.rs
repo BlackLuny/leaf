@@ -92,6 +92,7 @@ impl OutboundStreamHandler for Handler {
             reuse_tcp: true,
             piped_stream: None,
             remote_stream_connector: None,
+            speed_rate: None,
         };
 
         // Send connection request to private_tun client
@@ -163,6 +164,7 @@ impl OutboundStreamHandler for Handler {
             reuse_tcp: true,
             piped_stream: None,
             remote_stream_connector: None,
+            speed_rate: None,
         };
 
         // Send connection request to private_tun client
